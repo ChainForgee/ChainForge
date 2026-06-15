@@ -1,14 +1,19 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Inject, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import {
   NotificationJobData,
   NotificationResult,
+  NotificationType,
 } from './interfaces/notification-job.interface';
 import { PrismaService } from '../prisma/prisma.service';
 
 import { DlqService } from '../jobs/dlq.service';
 import { MetricsService } from '../observability/metrics/metrics.service';
+import {
+  SmsProvider,
+  SMS_PROVIDER,
+} from './providers/sms-provider.interface';
 
 @Processor('notifications', {
   concurrency: parseInt(process.env.QUEUE_CONCURRENCY || '5'),
@@ -20,6 +25,7 @@ export class NotificationProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly dlqService: DlqService,
     private readonly metricsService: MetricsService,
+    @Inject(SMS_PROVIDER) private readonly smsProvider: SmsProvider,
   ) {
     super();
   }
@@ -52,12 +58,18 @@ export class NotificationProcessor extends WorkerHost {
     }
 
     try {
-      // Mock: In production, integrate with SendGrid, Twilio, etc.
+      if (job.data.type === NotificationType.SMS) {
+        const { messageId } = await this.smsProvider.send(
+          job.data.recipient,
+          job.data.message,
+        );
+        return { success: true, messageId };
+      }
+
+      // Email delivery is still mocked pending a provider integration.
       this.logger.debug(
         `[Mock] Sending ${job.data.type} to ${job.data.recipient}: ${job.data.message}`,
       );
-
-      // Simulate some processing time
       await new Promise(resolve => setTimeout(resolve, 100));
 
       return {

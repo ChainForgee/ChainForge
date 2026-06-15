@@ -5,6 +5,7 @@ import { NotificationType } from './interfaces/notification-job.interface';
 import { Job } from 'bullmq';
 import { DlqService } from '../jobs/dlq.service';
 import { MetricsService } from '../observability/metrics/metrics.service';
+import { SMS_PROVIDER } from './providers/sms-provider.interface';
 
 describe('NotificationProcessor', () => {
   let processor: NotificationProcessor;
@@ -14,6 +15,7 @@ describe('NotificationProcessor', () => {
     };
   };
   let metricsMock: { incrementCallbackFailure: jest.Mock };
+  let smsProviderMock: { send: jest.Mock };
 
   const makeJob = (
     overrides: Partial<{
@@ -43,6 +45,9 @@ describe('NotificationProcessor', () => {
       },
     };
     metricsMock = { incrementCallbackFailure: jest.fn() };
+    smsProviderMock = {
+      send: jest.fn().mockResolvedValue({ messageId: 'twilio-sid-1' }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -60,6 +65,10 @@ describe('NotificationProcessor', () => {
         {
           provide: MetricsService,
           useValue: metricsMock,
+        },
+        {
+          provide: SMS_PROVIDER,
+          useValue: smsProviderMock,
         },
       ],
     }).compile();
@@ -116,6 +125,44 @@ describe('NotificationProcessor', () => {
       const job = makeJob({ outboxId: 'outbox-abc' });
 
       await expect(processor.process(job)).rejects.toThrow('DB error');
+    });
+
+    it('should deliver SMS jobs through the SMS provider', async () => {
+      const job = makeJob({
+        type: NotificationType.SMS,
+        recipient: '+15551234567',
+        message: 'Claim receipt',
+      });
+
+      const result = await processor.process(job);
+
+      expect(smsProviderMock.send).toHaveBeenCalledWith(
+        '+15551234567',
+        'Claim receipt',
+      );
+      expect(result).toEqual({ success: true, messageId: 'twilio-sid-1' });
+    });
+
+    it('should not call the SMS provider for email jobs', async () => {
+      const job = makeJob({ type: NotificationType.EMAIL });
+
+      await processor.process(job);
+
+      expect(smsProviderMock.send).not.toHaveBeenCalled();
+    });
+
+    it('should propagate SMS provider failures so the job is retried', async () => {
+      smsProviderMock.send.mockRejectedValueOnce(new Error('Twilio 500'));
+      const job = makeJob({
+        type: NotificationType.SMS,
+        recipient: '+15551234567',
+      });
+
+      await expect(processor.process(job)).rejects.toThrow('Twilio 500');
+      expect(metricsMock.incrementCallbackFailure).toHaveBeenCalledWith(
+        'notification_delivery',
+        'Twilio 500',
+      );
     });
   });
 

@@ -150,3 +150,6 @@ GEMINI.md
 .cody/
 # SpecStory
 .specstory/
+
+# Local planning/spec docs (not committed)
+docs/superpowers/

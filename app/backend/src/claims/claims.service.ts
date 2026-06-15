@@ -24,6 +24,7 @@ import { MetricsService } from '../observability/metrics/metrics.service';
 import { AuditService } from '../audit/audit.service';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { BudgetService } from '../common/budget/budget.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 type ExpirationCleanupCapableAdapter = OnchainAdapter & {
   revokeAidPackage?: (params: {
@@ -61,6 +62,7 @@ export class ClaimsService {
     private readonly auditService: AuditService,
     private readonly encryptionService: EncryptionService,
     private readonly budgetService: BudgetService,
+    private readonly notificationsService: NotificationsService,
   ) {
     this.onchainEnabled =
       this.configService.get<string>('ONCHAIN_ENABLED') === 'true';
@@ -567,7 +569,7 @@ export class ClaimsService {
         shareDto.message ?? undefined,
       );
     } else if (shareDto.channel === 'sms' && shareDto.phoneNumbers?.length) {
-      this.sendReceiptViaSMS(
+      await this.sendReceiptViaSMS(
         shareDto.phoneNumbers,
         receipt,
         shareDto.message ?? undefined,
@@ -650,14 +652,18 @@ export class ClaimsService {
   }
 
   /**
-   * Send receipt via SMS
-   * Stub implementation - replace with actual SMS service
+   * Send receipt via SMS by enqueuing async delivery jobs through the
+   * notifications service (BullMQ + outbox + retries + dead-letter queue).
+   *
+   * Each number is enqueued independently so one failure does not abort the
+   * others, and enqueue failures are logged rather than thrown — receipt
+   * generation must still succeed for the caller.
    */
-  private sendReceiptViaSMS(
+  private async sendReceiptViaSMS(
     phoneNumbers: string[],
     receipt: ClaimReceiptDto,
     _message?: string,
-  ): void {
+  ): Promise<void> {
     this.logger.log(
       `Sending receipt via SMS to ${phoneNumbers.length} recipient(s)`,
       {
@@ -666,12 +672,19 @@ export class ClaimsService {
       },
     );
 
-    // TODO: Integrate with SMS service (Twilio, AWS SNS, etc.)
-    // For now, this is a stub that logs the action
     const smsText = `Claim ${receipt.claimId} - Status: ${receipt.status} - Amount: ${receipt.amount} tokens`;
-    for (const phone of phoneNumbers) {
-      this.logger.debug(`[SMS STUB] Would send to ${phone}: ${smsText}`);
-    }
+
+    await Promise.all(
+      phoneNumbers.map(async phone => {
+        try {
+          await this.notificationsService.sendSms(phone, smsText);
+        } catch (err) {
+          this.logger.error(
+            `Failed to enqueue SMS receipt for claim ${receipt.claimId} to ${phone}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }),
+    );
   }
 
   async exportClaims(query: ExportClaimsQueryDto): Promise<{

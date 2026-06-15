@@ -13,6 +13,7 @@ import { LoggerService } from '../logger/logger.service';
 import { MetricsService } from '../observability/metrics/metrics.service';
 import { AuditService } from '../audit/audit.service';
 import { EncryptionService } from '../common/encryption/encryption.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ClaimStatus, Prisma } from '@prisma/client';
 
 describe('ClaimsService', () => {
@@ -80,6 +81,15 @@ describe('ClaimsService', () => {
     record: jest.fn().mockResolvedValue({ id: 'audit-1' }),
   };
 
+  const mockNotificationsService = {
+    sendSms: jest
+      .fn()
+      .mockResolvedValue({ outboxId: 'outbox-1', jobId: 'job-1' }),
+    sendEmail: jest
+      .fn()
+      .mockResolvedValue({ outboxId: 'outbox-1', jobId: 'job-1' }),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -145,6 +155,10 @@ describe('ClaimsService', () => {
             decryptDeterministic: jest.fn((v: string) => v),
           },
         },
+        {
+          provide: NotificationsService,
+          useValue: mockNotificationsService,
+        },
       ],
     }).compile();
 
@@ -156,6 +170,47 @@ describe('ClaimsService', () => {
     configService = module.get(ConfigService);
 
     jest.clearAllMocks();
+  });
+
+  describe('shareReceipt (SMS)', () => {
+    const receipt = {
+      claimId: 'claim-123',
+      packageId: 'pkg-1',
+      status: 'approved',
+      amount: 100,
+      timestamp: new Date().toISOString(),
+    } as any;
+
+    beforeEach(() => {
+      jest.spyOn(service as any, 'getReceipt').mockResolvedValue(receipt);
+    });
+
+    it('enqueues an SMS through NotificationsService for each phone number', async () => {
+      await service.shareReceipt('claim-123', {
+        channel: 'sms',
+        phoneNumbers: ['+15551234567', '+15557654321'],
+      } as any);
+
+      expect(mockNotificationsService.sendSms).toHaveBeenCalledTimes(2);
+      expect(mockNotificationsService.sendSms).toHaveBeenCalledWith(
+        '+15551234567',
+        expect.stringContaining('claim-123'),
+      );
+    });
+
+    it('does not throw when an enqueue fails and still returns the receipt', async () => {
+      mockNotificationsService.sendSms
+        .mockRejectedValueOnce(new Error('redis down'))
+        .mockResolvedValueOnce({ outboxId: 'o', jobId: 'j' });
+
+      const result = await service.shareReceipt('claim-123', {
+        channel: 'sms',
+        phoneNumbers: ['+15551234567', '+15557654321'],
+      } as any);
+
+      expect(mockNotificationsService.sendSms).toHaveBeenCalledTimes(2);
+      expect(result.text).toContain('CLAIM RECEIPT');
+    });
   });
 
   describe('disburse', () => {
@@ -336,6 +391,19 @@ describe('ClaimsService', () => {
               decrypt: jest.fn((v: string) => v),
               encryptDeterministic: jest.fn((v: string) => v),
               decryptDeterministic: jest.fn((v: string) => v),
+            },
+          },
+          {
+            provide: NotificationsService,
+            useValue: {
+              sendSms: jest.fn().mockResolvedValue({
+                outboxId: 'outbox-1',
+                jobId: 'job-1',
+              }),
+              sendEmail: jest.fn().mockResolvedValue({
+                outboxId: 'outbox-1',
+                jobId: 'job-1',
+              }),
             },
           },
         ],

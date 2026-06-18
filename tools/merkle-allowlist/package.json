@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "ethers": "^5.7.2",
-    "merkletreejs": "^0.2.31",
+    "merkletreejs": "^0.6.0",
     "keccak256": "^1.0.6"
   }
 }

@@ -9,7 +9,7 @@ python-multipart==0.0.6
 
 # Data validation and settings management
 pydantic==2.5.3
-pydantic-settings==2.1.0
+pydantic-settings==2.14.1
 
 # Environment variable management
 python-dotenv==1.0.0

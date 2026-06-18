@@ -47,5 +47,5 @@ scikit-learn==1.4.2
 slowapi==0.1.9
 
 # System monitoring
-psutil==5.9.8
+psutil==7.2.2
 prometheus-client==0.20.0

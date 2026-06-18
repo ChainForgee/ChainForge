@@ -124,7 +124,7 @@ jobs:
         zip -r ../ai-service-deploy.zip .
         
     - name: Upload deployment artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ai-service-deploy
         path: ai-service-deploy.zip

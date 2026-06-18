@@ -42,7 +42,7 @@ spacy==3.7.4
 scikit-learn==1.4.2
 
 # Rate limiting
-slowapi==0.1.9
+slowapi==0.1.10
 
 # Testing
 pytest==8.0.0

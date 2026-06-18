@@ -1,4 +1,5 @@
 import { fetchClient } from '@/lib/mock-api/client';
+import { withRetry } from '@/lib/retry';
 import type {
   VerificationInboxResponse,
   VerificationInboxItem,
@@ -23,19 +24,19 @@ function buildParams(filters: Partial<ReviewFilters>): string {
 export async function fetchInbox(
   filters: Partial<ReviewFilters>,
 ): Promise<VerificationInboxResponse> {
-  const res = await fetchClient(`${BASE}${buildParams(filters)}`);
+  const res = await withRetry(() => fetchClient(`${BASE}${buildParams(filters)}`));
   if (!res.ok) throw new Error(`Failed to fetch inbox: ${res.status}`);
   return res.json() as Promise<VerificationInboxResponse>;
 }
 
 export async function fetchStats(): Promise<VerificationStats> {
-  const res = await fetchClient(`${BASE}/stats`);
+  const res = await withRetry(() => fetchClient(`${BASE}/stats`));
   if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
   return res.json() as Promise<VerificationStats>;
 }
 
 export async function fetchDetails(id: string): Promise<VerificationInboxItem> {
-  const res = await fetchClient(`${BASE}/${id}`);
+  const res = await withRetry(() => fetchClient(`${BASE}/${id}`));
   if (!res.ok) throw new Error(`Failed to fetch verification: ${res.status}`);
   return res.json() as Promise<VerificationInboxItem>;
 }
@@ -44,11 +45,11 @@ export async function approveVerification(
   id: string,
   payload: { nextStepMessage?: string; internalNote?: string },
 ): Promise<VerificationInboxItem> {
-  const res = await fetchClient(`${BASE}/${id}/approve`, {
+  const res = await withRetry(() => fetchClient(`${BASE}/${id}/approve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }));
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(
@@ -66,11 +67,11 @@ export async function rejectVerification(
     internalNote?: string;
   },
 ): Promise<VerificationInboxItem> {
-  const res = await fetchClient(`${BASE}/${id}/reject`, {
+  const res = await withRetry(() => fetchClient(`${BASE}/${id}/reject`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }));
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(
@@ -88,11 +89,11 @@ export async function requestResubmission(
     internalNote?: string;
   },
 ): Promise<VerificationInboxItem> {
-  const res = await fetchClient(`${BASE}/${id}/request-resubmission`, {
+  const res = await withRetry(() => fetchClient(`${BASE}/${id}/request-resubmission`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }));
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(
@@ -104,7 +105,7 @@ export async function requestResubmission(
 }
 
 export async function fetchNotes(id: string): Promise<InternalNote[]> {
-  const res = await fetchClient(`${BASE}/${id}/notes`);
+  const res = await withRetry(() => fetchClient(`${BASE}/${id}/notes`));
   if (!res.ok) throw new Error(`Failed to fetch notes: ${res.status}`);
   return res.json() as Promise<InternalNote[]>;
 }
@@ -113,11 +114,11 @@ export async function addNote(
   id: string,
   payload: { content: string; category?: string },
 ): Promise<InternalNote> {
-  const res = await fetchClient(`${BASE}/${id}/notes`, {
+  const res = await withRetry(() => fetchClient(`${BASE}/${id}/notes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }));
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(

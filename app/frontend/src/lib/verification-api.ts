@@ -11,6 +11,7 @@
  */
 
 import type { VerificationResult } from '@/types/verification';
+import { withRetry } from '@/lib/retry';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -40,10 +41,12 @@ export async function startEvidenceVerification(
     let response: Response;
 
     try {
-        response = await fetch(`${API_URL}/api/v1/verification/start`, {
-            method: 'POST',
-            body: payload,
-        });
+        response = await withRetry(() =>
+            fetch(`${API_URL}/api/v1/verification/start`, {
+                method: 'POST',
+                body: payload,
+            }),
+        );
     } catch {
         throw new VerificationApiError(
             'Unable to reach the verification service. Please check your connection and try again.',

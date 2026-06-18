@@ -3,6 +3,25 @@ import { fetchClient } from '@/lib/mock-api/client';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
+export const CSV_MAX_ROWS = 10_000;
+
+export const FIELD_MAX_LENGTHS: Record<string, number> = {
+  name: 120,
+  fullname: 120,
+  recipientname: 120,
+  wallet: 64,
+  walletaddress: 64,
+  stellarwallet: 64,
+  publickey: 64,
+  phone: 20,
+  phonenumber: 20,
+  mobile: 20,
+};
+
+const DEFAULT_FIELD_MAX_LENGTH = 255;
+
+const INJECTION_PATTERN = /^[=+\-@\t\r]|[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
+
 export type WizardStep = 1 | 2 | 3 | 4;
 export type ValidationSeverity = 'valid' | 'warning' | 'error';
 
@@ -57,6 +76,37 @@ function normalizeRecord(record: Record<string, unknown>): Record<string, string
   );
 }
 
+function sanitizeField(value: string, maxLength = DEFAULT_FIELD_MAX_LENGTH): string {
+  return value
+    .trim()
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .slice(0, maxLength);
+}
+
+function validateField(fieldKey: string, value: string): ValidationMessage[] {
+  const messages: ValidationMessage[] = [];
+  const normalizedKey = fieldKey.toLowerCase().replace(/[_\s-]+/g, '');
+  const maxLen = FIELD_MAX_LENGTHS[normalizedKey] ?? DEFAULT_FIELD_MAX_LENGTH;
+
+  if (value.length > maxLen) {
+    messages.push({
+      severity: 'error',
+      field: fieldKey,
+      message: `Value exceeds the ${maxLen}-character limit (${value.length} chars).`,
+    });
+  }
+
+  if (INJECTION_PATTERN.test(value)) {
+    messages.push({
+      severity: 'error',
+      field: fieldKey,
+      message: 'Value contains disallowed characters or may be a formula injection attempt.',
+    });
+  }
+
+  return messages;
+}
+
 export async function parseRecipientsCsv(file: File): Promise<ParsedCsvData> {
   return new Promise((resolve, reject) => {
     Papa.parse<Record<string, unknown>>(file, {
@@ -69,10 +119,32 @@ export async function parseRecipientsCsv(file: File): Promise<ParsedCsvData> {
           return;
         }
 
-        const rows = (results.data ?? [])
+        const rawRows = (results.data ?? [])
           .map(normalizeRecord)
-          .filter(row => Object.values(row).some(Boolean))
-          .map((values, index) => ({ index: index + 1, values }));
+          .filter(row => Object.values(row).some(Boolean));
+
+        if (rawRows.length > CSV_MAX_ROWS) {
+          reject(
+            new Error(
+              `The CSV file contains ${rawRows.length.toLocaleString()} rows, which exceeds the ` +
+              `${CSV_MAX_ROWS.toLocaleString()}-row limit. Split the file and import in batches.`
+            )
+          );
+          return;
+        }
+
+        const rows = rawRows.map((values, index) => {
+          const sanitized = Object.fromEntries(
+            Object.entries(values).map(([key, val]) => [
+              key,
+              sanitizeField(
+                val,
+                FIELD_MAX_LENGTHS[key.toLowerCase().replace(/[_\s-]+/g, '')] ?? DEFAULT_FIELD_MAX_LENGTH
+              ),
+            ])
+          );
+          return { index: index + 1, values: sanitized };
+        });
 
         const headers =
           results.meta.fields?.map(header => header.trim()).filter(Boolean) ??
@@ -122,6 +194,12 @@ function buildLocalValidation(rows: CsvPreviewRow[]): ValidationResult {
 
     if (!phone) {
       messages.push({ severity: 'warning', field: 'phone', message: 'Phone number is missing.' });
+    }
+
+    for (const [fieldKey, fieldValue] of Object.entries(values)) {
+      if (fieldValue) {
+        messages.push(...validateField(fieldKey, fieldValue));
+      }
     }
 
     const status: ValidationSeverity = messages.some(message => message.severity === 'error')

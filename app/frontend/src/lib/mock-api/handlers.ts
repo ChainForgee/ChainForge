@@ -227,6 +227,15 @@ const campaignUpdateHandler: MockHandler = async (url, options) => {
 };
 
 const recipientsImportValidateHandler: MockHandler = async (_url, options) => {
+  const MAX_ROWS = 10_000;
+  const MAX_FIELD_LENGTH: Record<string, number> = {
+    name: 120, fullname: 120, recipientname: 120,
+    wallet: 64, walletaddress: 64, stellarwallet: 64, publickey: 64,
+    phone: 20, phonenumber: 20, mobile: 20,
+  };
+  const DEFAULT_MAX = 255;
+  const INJECTION_RE = /^[=+\-@\t\r]|[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
+
   const body = options?.body;
 
   if (!(body instanceof FormData)) {
@@ -256,6 +265,17 @@ const recipientsImportValidateHandler: MockHandler = async (_url, options) => {
     .map(value => value.trim())
     .filter(Boolean);
 
+  if (dataLines.length > MAX_ROWS) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        message: `CSV exceeds the ${MAX_ROWS.toLocaleString()}-row limit ` +
+          `(${dataLines.length.toLocaleString()} rows found). Split the file and import in batches.`,
+      }),
+      { status: 422, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
   const normalizedHeaders = headers.map(header => header.toLowerCase().replace(/[_\s-]+/g, ''));
   const nameIndex = normalizedHeaders.findIndex(header => ['name', 'fullname', 'recipientname'].includes(header));
   const walletIndex = normalizedHeaders.findIndex(header => ['wallet', 'walletaddress', 'stellarwallet', 'publickey'].includes(header));
@@ -281,6 +301,28 @@ const recipientsImportValidateHandler: MockHandler = async (_url, options) => {
     if (!phone) {
       messages.push({ severity: 'warning', field: 'phone', message: 'Phone number is missing.' });
     }
+
+    headers.forEach((header, colIndex) => {
+      const fieldValue = values[colIndex] ?? '';
+      const normalizedKey = header.toLowerCase().replace(/[_\s-]+/g, '');
+      const maxLen = MAX_FIELD_LENGTH[normalizedKey] ?? DEFAULT_MAX;
+
+      if (fieldValue.length > maxLen) {
+        messages.push({
+          severity: 'error',
+          field: header,
+          message: `Value exceeds the ${maxLen}-character limit (${fieldValue.length} chars).`,
+        });
+      }
+
+      if (fieldValue && INJECTION_RE.test(fieldValue)) {
+        messages.push({
+          severity: 'error',
+          field: header,
+          message: 'Value contains disallowed characters or may be a formula injection attempt.',
+        });
+      }
+    });
 
     const status =
       messages.some(message => message.severity === 'error')

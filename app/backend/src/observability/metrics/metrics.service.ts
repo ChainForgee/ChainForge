@@ -43,6 +43,10 @@ export class MetricsService {
     public analyticsCacheMissesCounter: Counter<string>,
     @InjectMetric('analytics_cache_invalidations_total')
     public analyticsCacheInvalidationsCounter: Counter<string>,
+    @InjectMetric('email_delivery_total')
+    public emailDeliveryCounter: Counter<string>,
+    @InjectMetric('email_delivery_duration_seconds')
+    public emailDeliveryDuration: Histogram<string>,
   ) {}
 
   /**
@@ -223,5 +227,20 @@ export class MetricsService {
    */
   incrementAnalyticsCacheInvalidation(reason: string): void {
     this.analyticsCacheInvalidationsCounter.inc({ reason });
+  }
+
+  /**
+   * Record an email delivery attempt and its duration.
+   */
+  recordEmailDelivery(
+    status: 'success' | 'failed',
+    durationSeconds: number,
+  ): void {
+    this.emailDeliveryCounter.inc({ status });
+    this.emailDeliveryDuration.observe({ status }, durationSeconds);
+
+    if (status === 'failed') {
+      this.errorRateCounter.inc({ error_type: 'email_delivery_failure' });
+    }
   }
 }

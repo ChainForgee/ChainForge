@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { NotificationsService } from './notifications.service';
 import { NotificationProcessor } from './notifications.processor';
 import { OutboxController } from './outbox.controller';
+import { EmailService } from './email/email.service';
 import { JobsModule } from '../jobs/jobs.module';
 import { MetricsModule } from '../observability/metrics/metrics.module';
 import { LoggerModule } from '../logger/logger.module';
@@ -52,6 +53,7 @@ const smsProviderFactory = (configService: ConfigService): SmsProvider => {
   providers: [
     NotificationsService,
     NotificationProcessor,
+    EmailService,
     {
       provide: SMS_PROVIDER,
       useFactory: smsProviderFactory,

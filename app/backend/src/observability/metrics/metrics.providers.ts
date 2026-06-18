@@ -112,6 +112,19 @@ export const metricsProviders = [
     ],
   }),
 
+  // Email Metrics
+  makeCounterProvider({
+    name: 'email_delivery_total',
+    help: 'Total number of email delivery attempts',
+    labelNames: ['status'],
+  }),
+  makeHistogramProvider({
+    name: 'email_delivery_duration_seconds',
+    help: 'Duration of email delivery attempts in seconds',
+    labelNames: ['status'],
+    buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+  }),
+
   // Analytics Cache Metrics
   makeCounterProvider({
     name: 'analytics_cache_hits_total',

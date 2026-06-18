@@ -10,10 +10,8 @@ import { PrismaService } from '../prisma/prisma.service';
 
 import { DlqService } from '../jobs/dlq.service';
 import { MetricsService } from '../observability/metrics/metrics.service';
-import {
-  SmsProvider,
-  SMS_PROVIDER,
-} from './providers/sms-provider.interface';
+import { SmsProvider, SMS_PROVIDER } from './providers/sms-provider.interface';
+import { EmailService } from './email/email.service';
 
 @Processor('notifications', {
   concurrency: parseInt(process.env.QUEUE_CONCURRENCY || '5'),
@@ -26,6 +24,7 @@ export class NotificationProcessor extends WorkerHost {
     private readonly dlqService: DlqService,
     private readonly metricsService: MetricsService,
     @Inject(SMS_PROVIDER) private readonly smsProvider: SmsProvider,
+    private readonly emailService: EmailService,
   ) {
     super();
   }
@@ -66,16 +65,22 @@ export class NotificationProcessor extends WorkerHost {
         return { success: true, messageId };
       }
 
-      // Email delivery is still mocked pending a provider integration.
-      this.logger.debug(
-        `[Mock] Sending ${job.data.type} to ${job.data.recipient}: ${job.data.message}`,
-      );
-      await new Promise(resolve => setTimeout(resolve, 100));
+      if (job.data.type === NotificationType.EMAIL) {
+        const result = await this.emailService.sendEmail({
+          to: job.data.recipient,
+          subject: job.data.subject ?? 'ChainForge Notification',
+          text: job.data.message,
+        });
 
-      return {
-        success: true,
-        messageId: `mock-msg-${Date.now()}`,
-      };
+        return { success: true, messageId: result.messageId };
+      }
+
+      // Exhaustive: every NotificationType is handled above. This guards
+      // against a new type being added without a corresponding branch.
+      const unsupportedType: never = job.data.type;
+      throw new Error(
+        `Unsupported notification type: ${String(unsupportedType)}`,
+      );
     } catch (error) {
       this.logger.error(
         `Notification job ${job.id} failed: ${error instanceof Error ? error.message : 'Unknown error'}`,

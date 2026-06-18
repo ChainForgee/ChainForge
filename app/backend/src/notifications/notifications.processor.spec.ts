@@ -6,6 +6,7 @@ import { Job } from 'bullmq';
 import { DlqService } from '../jobs/dlq.service';
 import { MetricsService } from '../observability/metrics/metrics.service';
 import { SMS_PROVIDER } from './providers/sms-provider.interface';
+import { EmailService } from './email/email.service';
 
 describe('NotificationProcessor', () => {
   let processor: NotificationProcessor;
@@ -16,6 +17,7 @@ describe('NotificationProcessor', () => {
   };
   let metricsMock: { incrementCallbackFailure: jest.Mock };
   let smsProviderMock: { send: jest.Mock };
+  let emailServiceMock: { sendEmail: jest.Mock };
 
   const makeJob = (
     overrides: Partial<{
@@ -48,6 +50,12 @@ describe('NotificationProcessor', () => {
     smsProviderMock = {
       send: jest.fn().mockResolvedValue({ messageId: 'twilio-sid-1' }),
     };
+    emailServiceMock = {
+      sendEmail: jest.fn().mockResolvedValue({
+        success: true,
+        messageId: 'mock-message-id',
+      }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -69,6 +77,10 @@ describe('NotificationProcessor', () => {
         {
           provide: SMS_PROVIDER,
           useValue: smsProviderMock,
+        },
+        {
+          provide: EmailService,
+          useValue: emailServiceMock,
         },
       ],
     }).compile();
@@ -162,6 +174,48 @@ describe('NotificationProcessor', () => {
       expect(metricsMock.incrementCallbackFailure).toHaveBeenCalledWith(
         'notification_delivery',
         'Twilio 500',
+      );
+    });
+
+    it('should deliver email notifications via EmailService', async () => {
+      const job = makeJob();
+
+      const result = await processor.process(job);
+
+      expect(emailServiceMock.sendEmail).toHaveBeenCalledWith({
+        to: 'test@example.com',
+        subject: 'ChainForge Notification',
+        text: 'Test message',
+      });
+      expect(result).toEqual({
+        success: true,
+        messageId: 'mock-message-id',
+      });
+    });
+
+    it('should not call EmailService for SMS jobs', async () => {
+      const job = makeJob({
+        type: NotificationType.SMS,
+        recipient: '+15551234567',
+      });
+
+      await processor.process(job);
+
+      expect(emailServiceMock.sendEmail).not.toHaveBeenCalled();
+    });
+
+    it('should re-throw and increment failure metric when EmailService rejects', async () => {
+      emailServiceMock.sendEmail.mockRejectedValueOnce(
+        new Error('Email provider is not configured'),
+      );
+      const job = makeJob({ outboxId: 'outbox-abc' });
+
+      await expect(processor.process(job)).rejects.toThrow(
+        'Email provider is not configured',
+      );
+      expect(metricsMock.incrementCallbackFailure).toHaveBeenCalledWith(
+        'notification_delivery',
+        'Email provider is not configured',
       );
     });
   });

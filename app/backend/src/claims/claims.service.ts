@@ -562,7 +562,7 @@ export class ClaimsService {
 
     // Handle different sharing channels
     if (shareDto.channel === 'email' && shareDto.emailAddresses?.length) {
-      this.sendReceiptViaEmail(
+      void this.sendReceiptViaEmail(
         shareDto.emailAddresses,
         receipt,
         receiptText,
@@ -624,30 +624,32 @@ export class ClaimsService {
   }
 
   /**
-   * Send receipt via email
-   * Stub implementation - replace with actual email service
+   * Send receipt via email, queued for async delivery through the
+   * notifications BullMQ processor. Errors are caught and logged here
+   * since the caller does not await this method.
    */
-  private sendReceiptViaEmail(
+  private async sendReceiptViaEmail(
     emailAddresses: string[],
     receipt: ClaimReceiptDto,
     receiptText: string,
-    _message?: string,
-  ): void {
+    message?: string,
+  ): Promise<void> {
     this.logger.log(
-      `Sending receipt via email to ${emailAddresses.length} recipient(s)`,
-      {
-        claimId: receipt.claimId,
-        recipients: emailAddresses,
-      },
+      `Queuing receipt email to ${emailAddresses.length} recipient(s)`,
+      { claimId: receipt.claimId },
     );
 
-    // TODO: Integrate with email service (SendGrid, AWS SES, etc.)
-    // For now, this is a stub that logs the action
+    const subject = `Claim Receipt - ${receipt.claimId}`;
+    const body = message ? `${message}\n\n${receiptText}` : receiptText;
+
     for (const email of emailAddresses) {
-      this.logger.debug(
-        `[EMAIL STUB] Would send receipt to ${email}`,
-        receiptText.substring(0, 100),
-      );
+      try {
+        await this.notificationsService.sendEmail(email, subject, body);
+      } catch (error) {
+        this.logger.error(
+          `Failed to queue receipt email for claim ${receipt.claimId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      }
     }
   }
 

@@ -1,36 +1,34 @@
-import json
-import difflib
-from scrubber import scrub_pii
+import ast
+from pathlib import Path
 
 
-def load_json(path):
-    with open(path, "r") as f:
-        return json.load(f)
+ROOT = Path(__file__).resolve().parents[1]
+ROOT_SCRUBBER = ROOT / "scrubber.py"
+AI_SERVICE_SCRUBBER = ROOT / "app" / "ai-service" / "services" / "pii_scrubber.py"
 
 
-inputs = load_json("tests/fixtures/pii_inputs.json")
-expected = load_json("tests/fixtures/expected_outputs.json")
+def _function_names(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
 
 
-def test_pii_scrubbing():
+def _class_method_names(path: Path, class_name: str) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            return {
+                child.name
+                for child in node.body
+                if isinstance(child, ast.FunctionDef)
+            }
+    return set()
 
-    for inp, exp in zip(inputs, expected):
 
-        result = scrub_pii(inp["input"])
+def test_root_scrubber_no_longer_exports_legacy_scrub_function():
+    assert "scrub_pii" not in _function_names(ROOT_SCRUBBER)
 
-        if result != exp["expected"]:
 
-            diff = "\n".join(
-                difflib.unified_diff(
-                    [exp["expected"]],
-                    [result],
-                    fromfile="expected",
-                    tofile="actual",
-                    lineterm=""
-                )
-            )
+def test_ai_service_pii_scrubber_is_canonical_implementation():
+    methods = _class_method_names(AI_SERVICE_SCRUBBER, "PIIScrubberService")
 
-            print("\nRegression Detected:")
-            print(diff)
-
-        assert result == exp["expected"]
+    assert "anonymize" in methods

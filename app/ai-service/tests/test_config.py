@@ -41,6 +41,24 @@ def test_validate_api_keys_returns_true_when_test_provider_mode(monkeypatch):
     assert settings.validate_api_keys() is True
 
 
+def test_artifact_signing_secret_can_be_set_from_environment(monkeypatch):
+    monkeypatch.setenv("ARTIFACT_SIGNING_SECRET", "stable-secret-from-env")
+
+    settings = Settings()
+
+    assert settings.artifact_signing_secret == "stable-secret-from-env"
+
+
+def test_artifact_signing_secret_has_stable_development_default(monkeypatch):
+    monkeypatch.delenv("ARTIFACT_SIGNING_SECRET", raising=False)
+
+    first_settings = Settings()
+    second_settings = Settings()
+
+    assert first_settings.artifact_signing_secret == second_settings.artifact_signing_secret
+    assert first_settings.artifact_signing_secret == "dev-artifact-signing-secret-change-me"
+
+
 def test_staging_environment_defaults_to_safe_test_settings(monkeypatch):
     monkeypatch.setenv("APP_ENV", "staging")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -70,9 +88,19 @@ def test_production_environment_requires_provider_configuration(monkeypatch):
         Settings()
 
 
+def test_production_environment_requires_artifact_signing_secret(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("TEST_PROVIDER_MODE", "true")
+    monkeypatch.delenv("ARTIFACT_SIGNING_SECRET", raising=False)
+
+    with pytest.raises(ValueError, match="ARTIFACT_SIGNING_SECRET"):
+        Settings()
+
+
 def test_production_environment_allows_test_provider_when_enabled(monkeypatch):
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("TEST_PROVIDER_MODE", "true")
+    monkeypatch.setenv("ARTIFACT_SIGNING_SECRET", "production-signing-secret")
 
     settings = Settings()
 

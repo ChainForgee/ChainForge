@@ -8,7 +8,6 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import logging
 import os
-import secrets
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +69,7 @@ class Settings(BaseSettings):
     # Verification artifact access settings
     verification_artifacts_dir: str = "./artifacts/verification"
     verification_artifact_url_ttl_seconds: int = 300
-    artifact_signing_secret: str = secrets.token_urlsafe(32)
+    artifact_signing_secret: str = "dev-artifact-signing-secret-change-me"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -100,6 +99,10 @@ class Settings(BaseSettings):
             if not (self.openai_api_key or self.groq_api_key or self.test_provider_mode):
                 raise ValueError(
                     "Production environment requires OPENAI_API_KEY, GROQ_API_KEY, or TEST_PROVIDER_MODE=true"
+                )
+            if "ARTIFACT_SIGNING_SECRET" not in os.environ:
+                raise ValueError(
+                    "Production environment requires ARTIFACT_SIGNING_SECRET"
                 )
 
         return self

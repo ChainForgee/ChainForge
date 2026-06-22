@@ -1,6 +1,12 @@
 import json
 import difflib
-from scrubber import scrub_pii
+import sys
+from pathlib import Path
+
+AI_SERVICE_PATH = Path(__file__).resolve().parents[1] / "app" / "ai-service"
+sys.path.insert(0, str(AI_SERVICE_PATH))
+
+from services.pii_scrubber import PIIScrubberService
 
 
 def load_json(path):
@@ -10,13 +16,14 @@ def load_json(path):
 
 inputs = load_json("tests/fixtures/pii_inputs.json")
 expected = load_json("tests/fixtures/expected_outputs.json")
+scrubber = PIIScrubberService()
 
 
 def test_pii_scrubbing():
 
     for inp, exp in zip(inputs, expected):
 
-        result = scrub_pii(inp["input"])
+        result = scrubber.anonymize(inp["input"])["anonymized_text"]
 
         if result != exp["expected"]:
 

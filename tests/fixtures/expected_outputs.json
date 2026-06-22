@@ -1,15 +1,15 @@
 [
   {
     "name": "email test",
-    "expected": "Contact me at [REDACTED_EMAIL]"
+    "expected": "Contact me at [EMAIL_ADDRESS]"
   },
   {
     "name": "phone test",
-    "expected": "Call me on [REDACTED_PHONE]"
+    "expected": "Call me on [PHONE_NUMBER]"
   },
   {
     "name": "id test",
-    "expected": "My ID is [REDACTED_ID]"
+    "expected": "My ID is [ID_NUMBER]"
   },
   {
     "name": "safe text",

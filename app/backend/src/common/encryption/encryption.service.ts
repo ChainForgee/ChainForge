@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
@@ -9,20 +9,15 @@ const IV_CBC_BYTES = 16;
 
 @Injectable()
 export class EncryptionService {
-  private readonly logger = new Logger(EncryptionService.name);
   private readonly key: Buffer;
   private readonly deterministicIv: Buffer;
 
   constructor(private readonly configService: ConfigService) {
     const masterKey = this.configService.get<string>('ENCRYPTION_MASTER_KEY');
     if (!masterKey) {
-      this.logger.warn(
-        'ENCRYPTION_MASTER_KEY is not set. Using insecure fallback. Set this before production deployment.',
-      );
+      throw new Error('ENCRYPTION_MASTER_KEY must be configured');
     }
-    const keyMaterial =
-      masterKey ?? 'insecure-default-change-in-production!!!!!';
-    this.key = crypto.createHash('sha256').update(keyMaterial).digest();
+    this.key = crypto.createHash('sha256').update(masterKey).digest();
     this.deterministicIv = crypto
       .createHmac('sha256', this.key)
       .update('deterministic-iv-v1')

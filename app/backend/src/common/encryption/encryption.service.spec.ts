@@ -5,7 +5,10 @@ import { EncryptionService } from './encryption.service';
 describe('EncryptionService', () => {
   let service: EncryptionService;
 
-  beforeEach(async () => {
+  const createService = async (
+    masterKey: string | undefined = 'test-master-key-that-is-long-enough-32b!',
+    hasMasterKey = true,
+  ): Promise<EncryptionService> => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EncryptionService,
@@ -13,8 +16,9 @@ describe('EncryptionService', () => {
           provide: ConfigService,
           useValue: {
             get: jest.fn((key: string): string | undefined => {
-              if (key === 'ENCRYPTION_MASTER_KEY')
-                return 'test-master-key-that-is-long-enough-32b!';
+              if (key === 'ENCRYPTION_MASTER_KEY' && hasMasterKey) {
+                return masterKey;
+              }
               return undefined;
             }),
           },
@@ -22,11 +26,21 @@ describe('EncryptionService', () => {
       ],
     }).compile();
 
-    service = module.get<EncryptionService>(EncryptionService);
+    return module.get<EncryptionService>(EncryptionService);
+  };
+
+  beforeEach(async () => {
+    service = await createService();
   });
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('should fail fast when ENCRYPTION_MASTER_KEY is not configured', async () => {
+    await expect(createService(undefined, false)).rejects.toThrow(
+      'ENCRYPTION_MASTER_KEY must be configured',
+    );
   });
 
   describe('encrypt / decrypt', () => {

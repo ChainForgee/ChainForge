@@ -154,6 +154,8 @@ We welcome contributions that make humanitarian aid delivery more transparent an
 
 For component-specific contribution guidelines, refer to the README in each `app/` subdirectory.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository-wide contribution ladder and pull request workflow. Governance and maintainer responsibilities are documented in [GOVERNANCE.md](GOVERNANCE.md) and [MAINTAINERS.md](MAINTAINERS.md).
+
 ---
 
 ## License

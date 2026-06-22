@@ -6,6 +6,7 @@ import { AppModule } from './app.module';
 import { LoggerService } from './logger/logger.service';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
 import { config as loadEnv } from 'dotenv';
+import type { NextFunction, Request, Response } from 'express';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -16,6 +17,23 @@ import {
   createHelmetMiddleware,
   createRateLimiter,
 } from './common/security/security.module';
+
+function createApiCacheHeaderMiddleware() {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const hasCredentials = Boolean(req.headers.authorization || req.headers['x-api-key']);
+
+    res.setHeader('Vary', 'Authorization, x-api-key');
+
+    if (req.method !== 'GET' || hasCredentials) {
+      res.setHeader('Cache-Control', 'no-store');
+      next();
+      return;
+    }
+
+    res.setHeader('Cache-Control', 'private, max-age=30, stale-while-revalidate=30');
+    next();
+  };
+}
 
 async function bootstrap() {
   // Load environment variables
@@ -44,10 +62,16 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   // Security middleware (order matters)
+  const httpAdapter = app.getHttpAdapter().getInstance() as {
+    set?: (setting: string, value: unknown) => void;
+  };
+  httpAdapter.set?.('etag', 'weak');
+
   app.use(createHelmetMiddleware(configService));
   app.use(createCorsOriginValidator(configService));
   app.enableCors(buildCorsOptions(configService));
   app.use(createRateLimiter(configService));
+  app.use(createApiCacheHeaderMiddleware());
 
   // Global prefix
   app.setGlobalPrefix('api');

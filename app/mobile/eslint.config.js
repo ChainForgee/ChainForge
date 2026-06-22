@@ -6,4 +6,15 @@ export default defineConfig([
   {
     ignores: ['dist/**'],
   },
+  {
+    rules: {
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
+    },
+  },
+  {
+    files: ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
 ]);

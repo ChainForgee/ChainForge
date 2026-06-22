@@ -25,5 +25,23 @@ module.exports = {
     '@typescript-eslint/no-floating-promises': 'warn',
     '@typescript-eslint/no-unsafe-argument': 'off',
     '@typescript-eslint/no-unsafe-assignment': 'off',
+    'no-console': ['warn', { allow: ['warn', 'error'] }],
   },
+  overrides: [
+    {
+      files: [
+        '**/*.test.ts',
+        '**/*.spec.ts',
+        '**/test/**/*.ts',
+        '**/tests/**/*.ts',
+        '**/scripts/**/*.ts',
+        '**/scripts/**/*.js',
+        '**/examples/**/*.ts',
+        '**/examples/**/*.js',
+      ],
+      rules: {
+        'no-console': 'off',
+      },
+    },
+  ],
 };

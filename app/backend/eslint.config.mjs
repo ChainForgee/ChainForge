@@ -32,7 +32,15 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-member-access': 'warn',
       '@typescript-eslint/no-unsafe-return': 'warn',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
       "prettier/prettier": ["error", { endOfLine: "auto" }],
+    },
+  },
+  {
+    // Dev-only scripts and usage examples intentionally write progress to stdout.
+    files: ['prisma/seed.ts', 'src/**/examples/**/*.ts', 'scripts/**/*.ts', 'scripts/**/*.js'],
+    rules: {
+      'no-console': 'off',
     },
   },
   {
@@ -56,6 +64,7 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/unbound-method': 'off',
+      'no-console': 'off',
     },
   }
 );

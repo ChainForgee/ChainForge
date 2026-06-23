@@ -111,8 +111,13 @@ export class HttpCacheInterceptor implements NestInterceptor {
 
     const ttlRaw = configService.get<string>('HTTP_CACHE_DEFAULT_TTL');
     const parsedTtl = ttlRaw !== undefined ? Number.parseInt(ttlRaw, 10) : NaN;
+    // NaN (not 0) when unset OR set to zero so that handlers without an
+    // explicit TTL do not silently emit `no-cache`. The maintainer contract
+    // is that an explicit `@HttpCacheTtl(0)` is the ONLY opt-in to
+    // `no-cache` — `HTTP_CACHE_DEFAULT_TTL=0` would otherwise leak that
+    // opt-in to every unannotated handler.
     this.defaultTtl =
-      Number.isFinite(parsedTtl) && parsedTtl >= 0 ? parsedTtl : 0;
+      Number.isFinite(parsedTtl) && parsedTtl > 0 ? parsedTtl : NaN;
 
     const maxRaw = configService.get<string>('HTTP_CACHE_MAX_ETAG_BYTES');
     const parsedMax = maxRaw !== undefined ? Number.parseInt(maxRaw, 10) : NaN;

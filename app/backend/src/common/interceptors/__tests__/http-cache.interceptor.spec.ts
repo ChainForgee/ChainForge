@@ -14,7 +14,7 @@ interface FakeResponse {
   statusCode: number;
   status(code: number): FakeResponse;
   setHeader(name: string, value: string | number): void;
-  getHeader(name: string): string | number | undefined;
+  getHeader(name: string): string | undefined;
   removeHeader(name: string): void;
 }
 
@@ -180,15 +180,16 @@ describe('HttpCacheInterceptor', () => {
       }
     });
 
-    it('does not interfere with HEAD / OPTIONS', async () => {
+    it('OPTIONS requests are passed through (correct CORS preflight behavior; HEAD is covered below)', async () => {
       configGet.mockReturnValue(undefined);
       const interceptor = buildInterceptor();
-      for (const method of ['HEAD', 'OPTIONS']) {
+      for (const method of ['OPTIONS']) {
         const { context, response } = createContext({ method });
         const next: CallHandler = { handle: () => of({}) };
         await firstValueFrom(interceptor.intercept(context, next));
         expect(response.getHeader('Cache-Control')).toBeUndefined();
         expect(response.getHeader('ETag')).toBeUndefined();
+        expect(response.getHeader('Vary')).toBeUndefined();
       }
     });
 

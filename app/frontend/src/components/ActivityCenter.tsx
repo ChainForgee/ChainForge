@@ -60,10 +60,18 @@ export function ActivityCenter() {
       >
         <Bell size={20} />
         {pendingCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+          <span
+            aria-hidden="true"
+            className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center"
+          >
             {pendingCount}
           </span>
         )}
+        <span className="sr-only">
+          {pendingCount > 0
+            ? `${pendingCount} pending activity notifications`
+            : 'No pending activity'}
+        </span>
       </button>
 
       {isOpen && (
@@ -81,10 +89,12 @@ export function ActivityCenter() {
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={() => setIsOpen(false)}
+                  aria-label="Close activity center"
                   className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"
                 >
-                  <X size={16} />
+                  <X size={16} aria-hidden="true" focusable="false" />
                 </button>
               </div>
             </div>
@@ -134,11 +144,13 @@ export function ActivityCenter() {
                               )}
                             </div>
                             <button
+                              type="button"
                               onClick={() => removeActivity(activity.id)}
                               className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                              aria-label={`Remove activity: ${activity.title}`}
                               title={t('activity.remove')}
                             >
-                              <X size={14} />
+                              <X size={14} aria-hidden="true" focusable="false" />
                             </button>
                           </div>
 

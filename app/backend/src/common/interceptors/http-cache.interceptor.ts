@@ -8,7 +8,8 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { catchError, map } from 'rxjs/operators';
+import { throwError } from 'rxjs';
 import { createHash } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { canonicalStringify } from '../utils/json-canonicalize.util';
@@ -70,8 +71,13 @@ const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  *                              caches partition by identity and
  *                              content encoding.
  *   - Mutation responses (POST/PUT/PATCH/DELETE) receive
- *     `Cache-Control: no-store` so intermediaries do not persist
- *     them between requests.
+ *     `Cache-Control: no-store` (with an HTTP/1.0 `Pragma: no-cache`
+ *     fallback) so intermediaries do not persist them between
+ *     requests, regardless of route or decorators.
+ *   - When the controller throws, we override the pre-set Cache-Control
+ *     with `no-store` + `Pragma: no-cache` so 4xx / 5xx responses are
+ *     never cached by a CDN, even though the interceptor's
+ *     pre-handler pass set `private, must-revalidate`.
  *   - When the client supplies `If-None-Match` matching the freshly
  *     computed ETag, the handler payload short-circuits and is
  *     replaced with an empty `304 Not Modified` response, leaving the
@@ -134,9 +140,11 @@ export class HttpCacheInterceptor implements NestInterceptor {
     // before any skip-path or `@SkipHttpCache` decorator check because
     // mutating endpoints must never end up in a shared cache, even if
     // mounted on a path we normally skip (e.g. a docs handler that
-    // accepts test mutations).
+    // accepts test mutations). RFC 7234 §5.5: also emit Pragma for
+    // HTTP/1.0 intermediaries.
     if (MUTATION_METHODS.has(requestMethod)) {
       response.setHeader('Cache-Control', 'no-store');
+      response.setHeader('Pragma', 'no-cache');
       return next.handle();
     }
 
@@ -167,12 +175,26 @@ export class HttpCacheInterceptor implements NestInterceptor {
     response.setHeader('Vary', 'Authorization, Accept-Encoding');
 
     return next.handle().pipe(
+      // If the controller throws, our pre-set `private, must-revalidate`
+      // header would otherwise leak out attached to a 4xx / 5xx body —
+      // a real risk because transient 5xx responses would then be
+      // cached and replayed by intermediaries. Override before re-throw.
+      catchError((err: unknown) => {
+        this.markNonCacheable(response);
+        return throwError(() => err);
+      }),
       map((data) => this.applyGetHeaders(request, response, data)),
     );
   }
 
   private shouldAlwaysSkip(request: Request): boolean {
-    const path = (request.baseUrl ?? '') + (request.path ?? request.url ?? '');
+    // `originalUrl` is the unmodified URL (preserved by Express across
+    // nested routers); `url` is what the router rewrote it to; `path`
+    // is router-stripped. Use `originalUrl ?? url` because that always
+    // matches what the client actually requested, including paths
+    // mounted under nested routers whose `baseUrl` + `path` would
+    // otherwise need re-stitching.
+    const path = request.originalUrl ?? request.url ?? '';
     if (!path) return false;
     for (const prefix of SKIP_PATH_PREFIXES) {
       if (path === prefix || path.startsWith(`${prefix}/`)) {
@@ -199,6 +221,15 @@ export class HttpCacheInterceptor implements NestInterceptor {
       serialized.length === 0 ||
       serialized.length > this.maxPayloadBytes
     ) {
+      if (serialized.length > this.maxPayloadBytes) {
+        this.logger.warn(
+          `Skipping ETag hash for ${request.method} ${
+            request.originalUrl ?? request.url
+          }; canonical payload ${serialized.length} bytes exceeds limit of ` +
+            `${this.maxPayloadBytes}. Annotate the handler with ` +
+            '`@SkipHttpCache()` or `@HttpCacheTtl()` to opt out.',
+        );
+      }
       this.setDebugHeader(response, 'bypass');
       return data;
     }
@@ -228,16 +259,28 @@ export class HttpCacheInterceptor implements NestInterceptor {
     return data;
   }
 
+  private markNonCacheable(response: Response): void {
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('Pragma', 'no-cache');
+    // Strip Vary too: an error response that's already no-store
+    // shouldn't carry a Vary header, since intermediaries then partition
+    // a cache by Authorization on responses that never get cached.
+    response.removeHeader('ETag');
+    response.removeHeader('Vary');
+  }
+
   private buildCacheControl(options: HttpCacheOptions): string {
     const ttl = options.ttl !== undefined ? options.ttl : this.defaultTtl;
     const visibility = options.public === true ? 'public' : 'private';
 
     const directives: string[] = [visibility];
 
+    // ttl === 0 is intentional: the maintainer contract is that 0 means
+    // "store but force revalidation", which RFC 7234 spells as
+    // `no-cache`. `max-age=0` would ALSO expire immediately but is a
+    // different signal in caching folklore; we prefer the unambiguous one.
     if (typeof ttl === 'number' && Number.isFinite(ttl)) {
       if (ttl <= 0) {
-        // `no-cache` still permits storage but forces revalidation;
-        // combine with `must-revalidate` for private caches.
         directives.push('no-cache');
       } else {
         directives.push(`max-age=${Math.floor(ttl)}`);
@@ -260,7 +303,7 @@ export class HttpCacheInterceptor implements NestInterceptor {
       return true;
     }
 
-    // Node Readables expose `.pipe`.
+    // Node Readables expose `.pipe`; Web streams expose `.pipeTo`.
     const candidate = data as { pipe?: unknown; pipeTo?: unknown };
     if (typeof candidate.pipe === 'function' || typeof candidate.pipeTo === 'function') {
       return false;
@@ -287,6 +330,11 @@ export class HttpCacheInterceptor implements NestInterceptor {
       return false;
     }
 
+    // Honor a controller-set Content-Type: handlers that decorate
+    // themselves with `@Header('Content-Type', '...')` to emit a non-JSON
+    // MIME are signalling that they intend to opt out of ETag hashing
+    // for their (binary / streamed) body. This keeps the existing
+    // `private, must-revalidate` header in place but skips ETag.
     const contentType = response.getHeader?.('Content-Type');
     if (typeof contentType === 'string' && !contentType.includes('json')) {
       return false;

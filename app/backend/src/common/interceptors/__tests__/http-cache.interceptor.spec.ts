@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { ExecutionContext, CallHandler } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
-import { firstValueFrom, of } from 'rxjs';
+import { firstValueFrom, of, throwError } from 'rxjs';
 import { HttpCacheInterceptor } from '../http-cache.interceptor';
 import {
   HTTP_CACHE_METADATA,
@@ -116,7 +116,7 @@ describe('HttpCacheInterceptor', () => {
   });
 
   describe('mutating methods', () => {
-    it('sets Cache-Control: no-store on POST/PUT/PATCH/DELETE', async () => {
+    it('sets Cache-Control: no-store + Pragma: no-cache on POST/PUT/PATCH/DELETE', async () => {
       configGet.mockReturnValue(undefined);
       const interceptor = buildInterceptor();
 
@@ -125,6 +125,7 @@ describe('HttpCacheInterceptor', () => {
         const next: CallHandler = { handle: () => of({}) };
         await firstValueFrom(interceptor.intercept(context, next));
         expect(response.getHeader('Cache-Control')).toBe('no-store');
+        expect(response.getHeader('Pragma')).toBe('no-cache');
       }
     });
 
@@ -151,6 +152,32 @@ describe('HttpCacheInterceptor', () => {
         interceptor.intercept(context, { handle: () => of({}) }),
       );
       expect(response.getHeader('Cache-Control')).toBe('no-store');
+      expect(response.getHeader('Pragma')).toBe('no-cache');
+    });
+
+    it('overrides Cache-Control to no-store when the controller throws', async () => {
+      configGet.mockReturnValue(undefined);
+      const interceptor = buildInterceptor();
+
+      for (const method of ['GET', 'HEAD']) {
+        const { context, response } = createContext({ method });
+        const error = new Error('boom');
+        await expect(
+          firstValueFrom(
+            interceptor.intercept(context, {
+              handle: () => throwError(() => error),
+            }),
+          ),
+        ).rejects.toBe(error);
+
+        expect(response.getHeader('Cache-Control')).toBe('no-store');
+        expect(response.getHeader('Pragma')).toBe('no-cache');
+        expect(response.getHeader('ETag')).toBeUndefined();
+        // Pre-set Vary is now stripped: an error response should not
+        // tell intermediaries to partition by Authorization on a cache
+        // that will never be consulted (cache control is no-store).
+        expect(response.getHeader('Vary')).toBeUndefined();
+      }
     });
 
     it('does not interfere with HEAD / OPTIONS', async () => {
@@ -258,6 +285,49 @@ describe('HttpCacheInterceptor', () => {
       expect(response.getHeader('ETag')).toMatch(/^"[a-f0-9]{64}"$/);
     });
 
+    it('hashes primitive response bodies (string, number, boolean, null)', async () => {
+      configGet.mockReturnValue(undefined);
+      const interceptor = buildInterceptor();
+
+      const cases: Array<{ label: string; payload: unknown }> = [
+        { label: 'string', payload: 'hello' },
+        { label: 'number', payload: 42 },
+        { label: 'zero', payload: 0 },
+        { label: 'boolean', payload: true },
+        { label: 'null', payload: null },
+      ];
+
+      for (const { payload } of cases) {
+        const { context, response } = createContext({
+          path: `/api/v1/primitive-${String(payload)}`,
+        });
+        const result = await firstValueFrom(
+          interceptor.intercept(context, { handle: () => of(payload) }),
+        );
+        expect(result).toBe(payload);
+        expect(response.getHeader('Cache-Control')).toBe(
+          'private, must-revalidate',
+        );
+        expect(response.getHeader('ETag')).toMatch(/^"[a-f0-9]{64}"$/);
+      }
+    });
+
+    it('skips ETag when Content-Type is set to a non-JSON value', async () => {
+      configGet.mockReturnValue(undefined);
+      const interceptor = buildInterceptor();
+      const { context, response } = createContext({});
+      // Simulate `@Header('Content-Type', 'text/plain')` on the handler.
+      response.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      await firstValueFrom(
+        interceptor.intercept(context, { handle: () => of({ id: 1 }) }),
+      );
+      expect(response.getHeader('ETag')).toBeUndefined();
+      // Cache-Control still emitted; the handler opted out of ETag only.
+      expect(response.getHeader('Cache-Control')).toBe(
+        'private, must-revalidate',
+      );
+    });
+
     describe('If-None-Match parsing', () => {
       const expect304 = async (
         ifNoneMatch: string,
@@ -341,7 +411,7 @@ describe('HttpCacheInterceptor', () => {
       );
     });
 
-    it('honours HttpCache({ public: true })', async () => {
+    it('honours @HttpCache({ public: true })', async () => {
       configGet.mockReturnValue(undefined);
       const interceptor = buildInterceptor();
       const handler = decorated(HTTP_CACHE_METADATA, { public: true });
@@ -365,14 +435,14 @@ describe('HttpCacheInterceptor', () => {
       expect(response.getHeader('ETag')).toBeUndefined();
     });
 
-    it('skips Swagger / docs / deprecated-test paths on GET', async () => {
+    it('skips Swagger / docs paths on GET (no Cache-Control emitted)', async () => {
       configGet.mockReturnValue(undefined);
       const interceptor = buildInterceptor();
       for (const path of [
         '/api/docs',
         '/api/v1/docs',
-        '/api/v1/deprecated-test',
         '/api/v2/docs/anything',
+        '/api/v1/deprecated-test',
       ]) {
         const { context, response } = createContext({ path });
         await firstValueFrom(

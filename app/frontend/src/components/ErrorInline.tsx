@@ -88,10 +88,12 @@ export function ErrorInline({
           )}
           {onClose && (
             <button
+              type="button"
               onClick={onClose}
+              aria-label={`Dismiss ${metadata.title} banner`}
               className="p-1 opacity-50 transition-opacity hover:opacity-100"
             >
-              <XCircle size={16} />
+              <XCircle size={16} aria-hidden="true" focusable="false" />
             </button>
           )}
         </div>
@@ -118,10 +120,12 @@ export function ErrorInline({
        
         {onClose && (
           <button
+            type="button"
             onClick={onClose}
+            aria-label={`Dismiss ${metadata.title} error`}
             className="text-slate-500 hover:text-slate-300 transition-colors"
           >
-            <XCircle size={18} />
+            <XCircle size={18} aria-hidden="true" focusable="false" />
           </button>
         )}
       </div>

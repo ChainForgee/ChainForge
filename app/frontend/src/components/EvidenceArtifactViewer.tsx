@@ -275,7 +275,7 @@ export const EvidenceArtifactViewer: React.FC<EvidenceArtifactViewerProps> = ({
       <div className="border-b border-gray-200 dark:border-gray-700 p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <h3 className="text-lg font-semibold">{artifact.metadata.filename}</h3>
+            <h2 className="text-lg font-semibold">{artifact.metadata.filename}</h2>
             <span className="text-sm text-gray-500">
               {artifact.metadata.type} • {(artifact.metadata.size / 1024 / 1024).toFixed(2)} MB
             </span>

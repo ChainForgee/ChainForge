@@ -1,0 +1,83 @@
+name: Lighthouse CI (Scheduled)
+
+on:
+  schedule:
+    # 00:30 UTC sidesteps the global GitHub Actions queue spike at
+    # midnight and ensures log rotations have completed first.
+    - cron: '30 0 * * *'
+  # Allow ops to trigger a fresh run on demand from the Actions tab
+  # without waiting for the next scheduled window.
+  workflow_dispatch:
+
+# Cancel any in-flight run if the schedule slips or someone hit
+# "Re-run all jobs" twice.
+concurrency:
+  group: scheduled-lighthouse
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Daily Lighthouse profile
+    runs-on: ubuntu-latest
+
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      NODE_ENV: production
+
+    defaults:
+      run:
+        working-directory: app/frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        id: node-version
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store-dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store-dir }}
+          # Node version is part of the key so a Node upgrade doesn't poison
+          # the restore-keys fallback with a stale store layout.
+          key: ${{ runner.os }}-node${{ steps.node-version.outputs.node-version }}-pnpm-lighthouse-${{ hashFiles('app/frontend/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node${{ steps.node-version.outputs.node-version }}-pnpm-lighthouse-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build production bundle
+        # pnpm start will refuse to boot if .next/ is missing, so a
+        # successful build step is a hard precondition.
+        run: pnpm build
+
+      - name: Run Lighthouse CI
+        # @lhci/cli ships its own Chromium via puppeteer, so we don't
+        # need a separate browser-actions step on ubuntu-latest.
+        run: pnpm lhci:autorun
+
+      - name: Upload Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-reports
+          path: app/frontend/lhci-reports
+          retention-days: 14
+          if-no-files-found: warn

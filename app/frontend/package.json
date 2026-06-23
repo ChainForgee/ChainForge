@@ -8,7 +8,13 @@
     "start": "next start",
     "lint": "eslint",
     "test": "jest",
+<<<<<<< Updated upstream
     "type-check": "tsc --noEmit"
+=======
+    "type-check": "tsc --noEmit",
+    "lhci:autorun": "lhci autorun",
+    "generate:api": "openapi-typescript openapi.json -o src/lib/generated/api.ts"
+>>>>>>> Stashed changes
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
@@ -27,6 +33,7 @@
     "next": "^16.2.1",
     "next-intl": "^4.9.1",
     "next-themes": "^0.4.6",
+    "openapi-fetch": "^0.13.5",
     "papaparse": "^5.5.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -35,6 +42,7 @@
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@lhci/cli": "^0.15.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
@@ -50,6 +58,7 @@
     "jest": "^30.3.0",
     "jest-axe": "^10.0.0",
     "jest-environment-jsdom": "^30.0.0",
+    "openapi-typescript": "^7.6.1",
     "tailwindcss": "^4",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",

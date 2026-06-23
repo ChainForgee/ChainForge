@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule } from '@nestjs/swagger';
+import { json } from 'express';
 import { AppModule } from './app.module';
 import { buildSwaggerConfig } from './swagger.config';
 import { LoggerService } from './logger/logger.service';
@@ -43,6 +44,21 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   const configService = app.get(ConfigService);
+
+  // Register a JSON body parser that also understands the CSP and
+  // Reporting-API content types.  These are not in express's default
+  // JSON `type` list, so without this the CSP report collector would
+  // receive an empty parsed body.
+  app.use(
+    json({
+      type: [
+        'application/json',
+        'application/csp-report',
+        'application/reports+json',
+      ],
+      limit: '256kb',
+    }),
+  );
 
   // Security middleware (order matters)
   app.use(createHelmetMiddleware(configService));

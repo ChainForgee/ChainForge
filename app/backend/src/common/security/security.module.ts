@@ -3,6 +3,8 @@ import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-option
 import { ConfigService } from '@nestjs/config';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import helmet, { HelmetOptions } from 'helmet';
+import { CspReportController } from './csp-report.controller';
+import { LoggerModule } from '../../logger/logger.module';
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:3000',
@@ -25,6 +27,9 @@ const RATE_LIMIT_EXEMPT_PATHS = [
   /^\/(api\/)?(v\d+\/)?health(\/|$)/i,
   /^\/(api\/)?(v\d+\/)?metrics(\/|$)/i,
   /^\/(api\/)?docs(\/|$)/i,
+  // CSP violation reports may legitimately spike during real incidents; we
+  // do not want rate limiting to silence browser-supplied security data.
+  /^\/(api\/)?(v\d+\/)?csp-report(\/|$)/i,
 ];
 
 const parseBoolean = (value: string | undefined, fallback = false): boolean => {
@@ -87,7 +92,13 @@ const buildHelmetOptions = (config: ConfigService): HelmetOptions => {
             objectSrc: ["'none'"],
             mediaSrc: ["'self'"],
             frameSrc: ["'none'"],
+            // Forward browser-side CSP violations to our collector so that
+            // monitoring can alert on XSS attempts and similar events.
+            reportUri: ['/api/v1/csp-report'],
           },
+          // We always run as `enforce` (no report-only mode) in production so
+          // that violations are actively blocked while still being collected.
+          reportOnly: false,
         }
       : false,
     crossOriginEmbedderPolicy: false,
@@ -275,10 +286,19 @@ export const createRateLimiter = (config: ConfigService): RequestHandler => {
  * CSRF is currently mitigated by design due to our stateless, token-based authentication
  * mechanism (`x-api-key` header). Since browsers do not automatically attach custom headers
  * on cross-origin requests, CSRF attacks are inherently prevented.
- * 
+ *
  * WARNING:
- * If cookie-based session management or any browser-managed credentials are introduced 
+ * If cookie-based session management or any browser-managed credentials are introduced
  * in the future, CSRF protection middleware MUST be implemented.
  */
-@Module({})
+@Module({
+  imports: [LoggerModule],
+  controllers: [CspReportController],
+})
 export class SecurityModule {}
+
+/**
+ * Exported so tests / scripts can refer to the canonical report URL
+ * without hard-coding the path.
+ */
+export const CSP_REPORT_PATH = '/api/v1/csp-report';

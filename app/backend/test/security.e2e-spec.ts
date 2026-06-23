@@ -128,6 +128,27 @@ describe('Security (e2e)', () => {
       process.env.NODE_ENV = 'development';
       process.env.CORS_ORIGINS = 'http://localhost:3000';
     });
+
+    it('should include report-uri directive pointing at /api/v1/csp-report in production', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.CORS_ORIGINS = 'https://api.chainforge.app';
+      process.env.CORS_ALLOW_CREDENTIALS = 'false';
+
+      const prodApp = await createTestApp({ enableDocs: false });
+      const response = await request(prodApp.getHttpServer()).get(
+        '/api/v1/health',
+      );
+
+      const csp = response.headers['content-security-policy'];
+      expect(csp).toBeDefined();
+      expect(csp).toContain('report-uri /api/v1/csp-report');
+
+      await prodApp.close();
+
+      // Reset to development
+      process.env.NODE_ENV = 'development';
+      process.env.CORS_ORIGINS = 'http://localhost:3000';
+    });
   });
 
   describe('CORS Policy', () => {
@@ -239,6 +260,81 @@ describe('Security (e2e)', () => {
 
       expect(response.status).toBe(200);
       expect(response.text).toContain('Swagger UI');
+    });
+  });
+
+  describe('CSP Report Endpoint', () => {
+    it('accepts a legacy application/csp-report payload and responds 204', async () => {
+      const legacyPayload = {
+        'csp-report': {
+          'document-uri': 'https://app.example.com/page',
+          'violated-directive': "script-src 'self'",
+          'blocked-uri': 'inline',
+          disposition: 'enforce',
+        },
+      };
+
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/csp-report')
+        .set('Content-Type', 'application/csp-report')
+        .send(legacyPayload);
+
+      expect(response.status).toBe(204);
+    });
+
+    it('accepts a modern application/reports+json array of reports', async () => {
+      const modernPayload = [
+        { type: 'csp-violation', url: 'https://app.example.com/page' },
+        { type: 'csp-violation', url: 'https://app.example.com/other' },
+      ];
+
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/csp-report')
+        .set('Content-Type', 'application/reports+json')
+        .send(modernPayload);
+
+      expect(response.status).toBe(204);
+    });
+
+    it('does not require an API key (Public decorator)', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/csp-report')
+        .set('Content-Type', 'application/csp-report')
+        .send({
+          'csp-report': {
+            'violated-directive': "img-src 'self'",
+          },
+        });
+
+      expect(response.status).toBe(204);
+    });
+
+    it('does not rate-limit CSP reports even when threshold is exceeded', async () => {
+      process.env.API_RATE_LIMIT = '2';
+      process.env.THROTTLE_TTL = '60000';
+
+      const limitedApp = await createTestApp({ enableDocs: true });
+
+      const statuses: number[] = [];
+      for (let i = 0; i < 5; i += 1) {
+        const res = await request(limitedApp.getHttpServer())
+          .post('/api/v1/csp-report')
+          .set('Content-Type', 'application/csp-report')
+          .send({
+            'csp-report': { 'violated-directive': "script-src 'self'" },
+          });
+        statuses.push(res.status);
+      }
+
+      await limitedApp.close();
+
+      // Reset back to safe defaults for other tests.
+      process.env.API_RATE_LIMIT = '1000';
+      process.env.THROTTLE_TTL = '60000';
+      process.env.CORS_ORIGINS = 'http://localhost:3000';
+      process.env.CORS_ALLOW_CREDENTIALS = 'false';
+
+      expect(statuses.every(s => s === 204)).toBe(true);
     });
   });
 });

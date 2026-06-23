@@ -2,6 +2,7 @@ import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common';
 import pino, { Logger as PinoLogger, Bindings, ChildLoggerOptions } from 'pino';
 import { AsyncLocalStorage } from 'async_hooks';
 import { CORRELATION_ID_KEY } from '../common/utils/correlation-id.util';
+import { redactLogData } from './log-redaction.util';
 
 // Type definitions
 type LogLevel = 'info' | 'error' | 'warn' | 'debug' | 'trace';
@@ -19,6 +20,57 @@ interface LogEntry {
   [key: string]: unknown;
 }
 
+// Pino path patterns for built-in redaction.  Matches the same sensitive
+// keys recognised by `log-redaction.util.ts`, applied with limited nesting
+// so it remains cost-effective at log-construction time.
+const SENSITIVE_REDACT_KEYS = [
+  'password',
+  'token',
+  'secret',
+  'authorization',
+  'apikey',
+  'api_key',
+  'privatekey',
+  'private_key',
+  'creditcard',
+  'ssn',
+];
+
+const REDACT_MAX_DEPTH = 4;
+
+const buildRedactPaths = (): string[] => {
+  const paths: string[] = [];
+  for (let depth = 1; depth <= REDACT_MAX_DEPTH; depth += 1) {
+    const prefix =
+      depth === 1
+        ? ''
+        : Array(depth - 1)
+            .fill('*')
+            .join('.') + '.';
+    for (const key of SENSITIVE_REDACT_KEYS) {
+      paths.push(`${prefix}${key}`);
+    }
+  }
+  return paths;
+};
+
+const PINO_REDACT_PATHS = buildRedactPaths();
+
+const isProduction = (): boolean =>
+  (process.env.NODE_ENV ?? 'development').toLowerCase() === 'production';
+
+const isTest = (): boolean =>
+  (process.env.NODE_ENV ?? 'development').toLowerCase() === 'test' ||
+  process.env.JEST_WORKER_ID !== undefined;
+
+/**
+ * Returns true when pino should output structured JSON without a transport.
+ * In production, logs must be machine-parseable for ELK / Datadog / CloudWatch.
+ * In test, pinned formatting keeps the test suite from hanging on worker threads
+ * when pino-pretty spawns its own worker.
+ */
+const shouldUseJsonOutput = (): boolean => isProduction() || isTest();
+
 @Injectable()
 export class LoggerService implements NestLoggerService {
   private readonly logger: PinoLogger;
@@ -30,6 +82,10 @@ export class LoggerService implements NestLoggerService {
     this.logger = pino({
       level: process.env.LOG_LEVEL || 'info',
       timestamp: pino.stdTimeFunctions.isoTime,
+      redact: {
+        paths: PINO_REDACT_PATHS,
+        censor: '[REDACTED]',
+      },
       formatters: {
         level: (label: string): Record<string, unknown> => ({ level: label }),
         log: (object: Record<string, unknown>): Record<string, unknown> => {
@@ -40,6 +96,20 @@ export class LoggerService implements NestLoggerService {
           return object;
         },
       },
+      // Pretty-print only when running locally outside tests/production.
+      ...(shouldUseJsonOutput()
+        ? {}
+        : {
+            transport: {
+              target: 'pino-pretty',
+              options: {
+                singleLine: true,
+                translateTime: 'SYS:HH:MM:ss.l',
+                ignore: 'pid,hostname',
+                colorize: true,
+              },
+            },
+          }),
     });
   }
 
@@ -52,6 +122,23 @@ export class LoggerService implements NestLoggerService {
   }
 
   /**
+   * Apply the recursive redaction utility to meta payload before Pino
+   * serialisation.  Defense in depth alongside Pino's `redact` paths so
+   * deeply nested sensitive data is scrubbed regardless of nesting depth.
+   */
+  private redactMeta(meta: LogMeta): LogMeta {
+    if (!meta || typeof meta !== 'object') {
+      return meta;
+    }
+    try {
+      return redactLogData(meta);
+    } catch {
+      // Never let redaction failures break log emission.
+      return meta;
+    }
+  }
+
+  /**
    * Format message with correlation ID for methods that bypass Pino's formatters
    */
   private formatMessage(
@@ -61,22 +148,32 @@ export class LoggerService implements NestLoggerService {
   ): LogEntry {
     const correlationId = this.getCorrelationId();
     const timestamp = new Date().toISOString();
+    const safeMeta = this.redactMeta(meta);
 
     // If message is an object, merge it with metadata
     if (typeof message === 'object' && message !== null) {
-      return {
-        ...message,
-        ...(meta || {}),
-        correlationId,
-        context,
-        timestamp,
-      };
+      try {
+        return {
+          ...message,
+          ...(safeMeta || {}),
+          correlationId,
+          context,
+          timestamp,
+        };
+      } catch {
+        return {
+          message: '[unserialisable payload]',
+          correlationId,
+          context,
+          timestamp,
+        };
+      }
     }
 
     // String message with metadata
     return {
       message,
-      ...(meta || {}),
+      ...(safeMeta || {}),
       correlationId,
       context,
       timestamp,
@@ -88,11 +185,27 @@ export class LoggerService implements NestLoggerService {
    */
   log(message: LogMessage, context?: LogContext, meta?: LogMeta): void {
     const correlationId = this.getCorrelationId();
+    const safeMeta = this.redactMeta(meta);
 
     if (typeof message === 'object' && message !== null) {
-      this.logger.info({ context, correlationId, ...message, ...(meta || {}) });
+      try {
+        this.logger.info({
+          context,
+          correlationId,
+          ...message,
+          ...(safeMeta || {}),
+        });
+      } catch {
+        this.logger.info(
+          { context, correlationId },
+          '[unserialisable payload]',
+        );
+      }
     } else {
-      this.logger.info({ context, correlationId, ...(meta || {}) }, message);
+      this.logger.info(
+        { context, correlationId, ...(safeMeta || {}) },
+        message,
+      );
     }
   }
 
@@ -106,18 +219,26 @@ export class LoggerService implements NestLoggerService {
     meta?: LogMeta,
   ): void {
     const correlationId = this.getCorrelationId();
+    const safeMeta = this.redactMeta(meta);
 
     if (typeof message === 'object' && message !== null) {
-      this.logger.error({
-        context,
-        correlationId,
-        trace,
-        ...message,
-        ...(meta || {}),
-      });
+      try {
+        this.logger.error({
+          context,
+          correlationId,
+          trace,
+          ...message,
+          ...(safeMeta || {}),
+        });
+      } catch {
+        this.logger.error(
+          { context, correlationId, trace },
+          '[unserialisable payload]',
+        );
+      }
     } else {
       this.logger.error(
-        { context, correlationId, trace, ...(meta || {}) },
+        { context, correlationId, trace, ...(safeMeta || {}) },
         message,
       );
     }
@@ -128,11 +249,27 @@ export class LoggerService implements NestLoggerService {
    */
   warn(message: LogMessage, context?: LogContext, meta?: LogMeta): void {
     const correlationId = this.getCorrelationId();
+    const safeMeta = this.redactMeta(meta);
 
     if (typeof message === 'object' && message !== null) {
-      this.logger.warn({ context, correlationId, ...message, ...(meta || {}) });
+      try {
+        this.logger.warn({
+          context,
+          correlationId,
+          ...message,
+          ...(safeMeta || {}),
+        });
+      } catch {
+        this.logger.warn(
+          { context, correlationId },
+          '[unserialisable payload]',
+        );
+      }
     } else {
-      this.logger.warn({ context, correlationId, ...(meta || {}) }, message);
+      this.logger.warn(
+        { context, correlationId, ...(safeMeta || {}) },
+        message,
+      );
     }
   }
 
@@ -141,16 +278,27 @@ export class LoggerService implements NestLoggerService {
    */
   debug(message: LogMessage, context?: LogContext, meta?: LogMeta): void {
     const correlationId = this.getCorrelationId();
+    const safeMeta = this.redactMeta(meta);
 
     if (typeof message === 'object' && message !== null) {
-      this.logger.debug({
-        context,
-        correlationId,
-        ...message,
-        ...(meta || {}),
-      });
+      try {
+        this.logger.debug({
+          context,
+          correlationId,
+          ...message,
+          ...(safeMeta || {}),
+        });
+      } catch {
+        this.logger.debug(
+          { context, correlationId },
+          '[unserialisable payload]',
+        );
+      }
     } else {
-      this.logger.debug({ context, correlationId, ...(meta || {}) }, message);
+      this.logger.debug(
+        { context, correlationId, ...(safeMeta || {}) },
+        message,
+      );
     }
   }
 
@@ -159,16 +307,27 @@ export class LoggerService implements NestLoggerService {
    */
   verbose(message: LogMessage, context?: LogContext, meta?: LogMeta): void {
     const correlationId = this.getCorrelationId();
+    const safeMeta = this.redactMeta(meta);
 
     if (typeof message === 'object' && message !== null) {
-      this.logger.trace({
-        context,
-        correlationId,
-        ...message,
-        ...(meta || {}),
-      });
+      try {
+        this.logger.trace({
+          context,
+          correlationId,
+          ...message,
+          ...(safeMeta || {}),
+        });
+      } catch {
+        this.logger.trace(
+          { context, correlationId },
+          '[unserialisable payload]',
+        );
+      }
     } else {
-      this.logger.trace({ context, correlationId, ...(meta || {}) }, message);
+      this.logger.trace(
+        { context, correlationId, ...(safeMeta || {}) },
+        message,
+      );
     }
   }
 
@@ -214,7 +373,7 @@ export class LoggerService implements NestLoggerService {
             ) {
               // Meta object provided
               const meta = {
-                ...(lastArg as Record<string, unknown>),
+                ...this.redactMeta(lastArg as LogMeta),
                 correlationId,
               };
               args[args.length - 1] = meta;

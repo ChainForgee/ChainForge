@@ -39,7 +39,7 @@ model AidPackage {
   remainingAmount Float @default(0)
 
   @@index([campaignId])
-  @@index([campaignId, status])
+    @@index([campaignId, status])
 }
 
 /// Tracks every balance event (lock / unlock / disburse) for a campaign.
@@ -180,6 +180,7 @@ model SessionSubmission {
   @@index([sessionId])
   @@index([stepId])
   @@index([deletedAt])
+  @@index([sessionId, deletedAt])
 }
 
 enum VerificationStatus {
@@ -208,6 +209,7 @@ model VerificationRequest {
   @@index([orgId])
   @@index([status])
   @@index([reviewedAt])
+  @@index([reviewedBy])
 }
 
 model Claim {
@@ -241,6 +243,7 @@ model Claim {
 
   @@index([status])
   @@index([campaignId])
+   @@index([campaignId, status])
   @@index([createdAt])
   @@index([deletedAt])
   @@index([reissuedFromId])

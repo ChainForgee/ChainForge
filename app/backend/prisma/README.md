@@ -1,8 +1,15 @@
-# Prisma: VerificationSession
+# Database Migration Strategy & Operational Procedures
 
-This folder contains the Prisma schema and migrations used by the backend.
+This document outlines the standard operating procedures for creating, testing, deploying, and rolling back database migrations using Prisma. It is critical that all engineers follow these steps to prevent data loss and production downtime.
 
-Key artifact for verification persistence
+## Migration Creation Workflow
+All schema changes must be developed and tested locally before being pushed to CI/CD.
+
+1. **Update Schema:** Make your changes in `schema.prisma`.
+2. **Generate Migration:** Run the dev command to create the SQL file and apply it locally:
+   ```bash
+   npx prisma migrate dev --name <descriptive_name>
+
 
 - Model: `VerificationSession` (defined in `schema.prisma`)
   - id: String (cuid)
@@ -58,8 +65,8 @@ Notes for tests
 
 Migration workflow
 
-1. Start from a clean branch and make the schema change in `schema.prisma`.
-2. Create the migration against a local database:
+-> Start from a clean branch and make the schema change in `schema.prisma`.
+-> Create the migration against a local database:
 
 ```bash
 pnpm --filter backend prisma:migrate -- --name <short_descriptive_name>

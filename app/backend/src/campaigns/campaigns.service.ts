@@ -53,16 +53,20 @@ export class CampaignsService {
     });
   }
 
-  async findAll(includeArchived = false, ngoId?: string | null) {
+  async findAll(includeArchived = false, ngoId?: string | null, page = 1, limit = 50) {
     const where: Prisma.CampaignWhereInput = {
       deletedAt: null,
       ...(includeArchived ? {} : { archivedAt: null }),
       ...(ngoId ? { ngoId } : {}),
     };
+    const take = Math.min(200, Math.max(1, limit));
+    const skip = (Math.max(1, page) - 1) * take;
 
     return this.prisma.campaign.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 

@@ -116,12 +116,15 @@ export class ClaimsService {
     return claim;
   }
 
-  async findAll() {
+  async findAll(page = 1, limit = 50) {
+    const take = Math.min(200, Math.max(1, limit));
+    const skip = (Math.max(1, page) - 1) * take;
     const claims = await this.prisma.claim.findMany({
       where: { deletedAt: null },
-      include: {
-        campaign: true,
-      },
+      include: { campaign: true },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
     return claims.map(claim => ({
       ...claim,

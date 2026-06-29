@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from '@liaoliaots/nestjs-redis';
 import { HealthController } from './health.controller';
 import { HealthService } from './health.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -37,6 +38,14 @@ describe('HealthController', () => {
     }),
   };
 
+  const redisClientMock = {
+    ping: jest.fn().mockResolvedValue('PONG'),
+  };
+
+  const redisMock = {
+    getOrThrow: jest.fn().mockReturnValue(redisClientMock),
+  };
+
   const originalFetch = global.fetch;
 
   beforeAll(async () => {
@@ -48,6 +57,7 @@ describe('HealthController', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: LoggerService, useValue: loggerMock },
         { provide: ONCHAIN_ADAPTER_TOKEN, useValue: onchainAdapterMock },
+        { provide: RedisService, useValue: redisMock },
       ],
     }).compile();
 
@@ -99,6 +109,7 @@ describe('HealthController', () => {
         checks: {
           database: expect.objectContaining({ status: 'up' }),
           stellarRpc: expect.objectContaining({ status: 'skipped' }),
+          redis: expect.objectContaining({ status: 'up' }),
         },
       }),
     );
@@ -120,6 +131,7 @@ describe('HealthController', () => {
         checks: {
           database: expect.objectContaining({ status: 'down' }),
           stellarRpc: expect.objectContaining({ status: 'skipped' }),
+          redis: expect.objectContaining({ status: 'up' }),
         },
       }),
     );
@@ -145,6 +157,7 @@ describe('HealthController', () => {
         checks: {
           database: expect.objectContaining({ status: 'up' }),
           stellarRpc: expect.objectContaining({ status: 'down' }),
+          redis: expect.objectContaining({ status: 'up' }),
         },
       }),
     );

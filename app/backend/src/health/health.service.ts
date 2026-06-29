@@ -1,5 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from '@liaoliaots/nestjs-redis';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoggerService } from '../logger/logger.service';
 import {
@@ -33,6 +34,7 @@ export interface ReadinessResponse {
   checks: {
     database: HealthCheckResult;
     stellarRpc: HealthCheckResult;
+    redis: HealthCheckResult;
   };
 }
 
@@ -44,6 +46,7 @@ export class HealthService {
     private readonly prisma: PrismaService,
     @Inject(ONCHAIN_ADAPTER_TOKEN)
     private readonly onchainAdapter: OnchainAdapter,
+    private readonly redisService: RedisService,
   ) {}
 
   check() {
@@ -84,9 +87,10 @@ export class HealthService {
   }
 
   async getReadiness(): Promise<ReadinessResponse> {
-    const [database, stellarRpc] = await Promise.all([
+    const [database, stellarRpc, redis] = await Promise.all([
       this.checkDatabase(),
       this.checkStellarRpc(),
+      this.checkRedis(),
     ]);
 
     const stellarRequired = this.isEnabled(
@@ -105,6 +109,7 @@ export class HealthService {
       checks: {
         database,
         stellarRpc,
+        redis,
       },
     };
   }
@@ -121,6 +126,21 @@ export class HealthService {
       requestId,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  private async checkRedis(): Promise<HealthCheckResult> {
+    try {
+      const client = this.redisService.getOrThrow();
+      await client.ping();
+      return { status: 'up', details: { connected: true } };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown Redis error';
+      this.logger.warn('Redis health check failed', 'HealthService', {
+        error: message,
+      });
+      return { status: 'down', details: { connected: false, error: message } };
+    }
   }
 
   private async checkDatabase(): Promise<HealthCheckResult> {

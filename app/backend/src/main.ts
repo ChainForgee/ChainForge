@@ -10,6 +10,7 @@ import { config as loadEnv } from 'dotenv';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+import compression from 'compression';
 import { RequestIdInterceptor } from './common/interceptors/request-id.interceptor';
 import {
   buildCorsOptions,
@@ -49,6 +50,7 @@ async function bootstrap() {
   app.use(createCorsOriginValidator(configService));
   app.enableCors(buildCorsOptions(configService));
   app.use(createRateLimiter(configService));
+  app.use(compression());
 
   // Global prefix
   app.setGlobalPrefix('api');

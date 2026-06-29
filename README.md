@@ -152,6 +152,8 @@ We welcome contributions that make humanitarian aid delivery more transparent an
 4. Ensure no secrets, keys, or seed phrases are committed
 5. Follow the coding conventions and style guides documented in each service's README
 
+For detailed contribution guidelines, see our [CONTRIBUTING.md](CONTRIBUTING.md) guide. Please also review our [Code of Conduct](CODE_OF_CONDUCT.md).
+
 For component-specific contribution guidelines, refer to the README in each `app/` subdirectory.
 
 ---

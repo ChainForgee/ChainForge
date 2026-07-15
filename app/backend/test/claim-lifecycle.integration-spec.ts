@@ -31,7 +31,9 @@ jest.mock('openai', () => ({
     chat: {
       completions: {
         create: jest.fn().mockResolvedValue({
-          choices: [{ message: { content: JSON.stringify({ verified: true }) } }],
+          choices: [
+            { message: { content: JSON.stringify({ verified: true }) } },
+          ],
         }),
       },
     },

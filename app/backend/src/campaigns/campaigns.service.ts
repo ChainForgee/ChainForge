@@ -167,7 +167,8 @@ export class CampaignsService {
     ]);
 
     // Use type assertion to handle Prisma client type limitations
-    // Prisma schema has these fields but generated types may be stale
+    // Prisma schema has these fields but generated types may be stale.
+    // BalanceLedger.amount is Decimal; call toNumber() for arithmetic.
     const campaigns = campaignsResult as unknown as Array<{
       id: string;
       name: string;
@@ -180,7 +181,7 @@ export class CampaignsService {
       archivedAt: Date | null;
       deletedAt: Date | null;
       _count: { claims: number };
-      balanceLedger: Array<{ amount: number }>;
+      balanceLedger: Array<{ amount: { toNumber(): number } | number }>;
     }>;
 
     const data: CampaignExportRow[] = campaigns.map(c => ({
@@ -194,7 +195,10 @@ export class CampaignsService {
       updatedAt: c.updatedAt,
       archivedAt: c.archivedAt ?? null,
       totalClaims: c._count.claims,
-      totalDisbursed: c.balanceLedger.reduce((sum, bl) => sum + bl.amount, 0),
+      totalDisbursed: c.balanceLedger.reduce((sum, bl) => {
+        const v = bl.amount;
+        return sum + (typeof v === 'object' ? v.toNumber() : (v as number));
+      }, 0),
     }));
 
     return { data, total, page, limit };

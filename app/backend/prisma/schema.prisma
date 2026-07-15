@@ -68,6 +68,27 @@ model BalanceLedger {
   @@index([createdAt])
 }
 
+/// Denormalised 24-hour running-total snapshot, computed by a scheduled job.
+/// Each row captures the sum of all BalanceLedger.amount entries for a
+/// campaign over the 24 h window ending at `snapshotAt`.
+model BalanceLedgerSnapshot {
+  id          String   @id @default(cuid())
+  campaignId  String
+  campaign    Campaign @relation(fields: [campaignId], references: [id])
+
+  /// Sum of all BalanceLedger entries in the 24 h window ending at snapshotAt.
+  totalLocked Decimal  @db.Decimal(38, 18)
+
+  /// Upper bound of the 24 h window this snapshot covers.
+  snapshotAt  DateTime @default(now())
+
+  createdAt   DateTime @default(now())
+
+  @@index([campaignId])
+  @@index([snapshotAt])
+  @@index([campaignId, snapshotAt])
+}
+
 enum VerificationChannel {
   email
   phone
@@ -364,6 +385,7 @@ model Campaign {
 
   claims      Claim[]
   balanceLedger BalanceLedger[]
+  balanceLedgerSnapshots BalanceLedgerSnapshot[]
   packages      AidPackage[]
 
   @@index([status])

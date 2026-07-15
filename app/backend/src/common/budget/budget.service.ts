@@ -7,7 +7,8 @@ export class BudgetService {
 
   /**
    * Returns the total locked and disbursed amount for a campaign.
-   * Optionally filter by token if your model supports it.
+   * BalanceLedger.amount is Decimal; values are returned as plain numbers
+   * for downstream arithmetic convenience.
    */
   async getCampaignBudgetUsage(
     campaignId: string,
@@ -28,9 +29,17 @@ export class BudgetService {
         eventType: 'disburse',
       },
     });
+
+    const toNum = (
+      d: { toNumber(): number } | number | null | undefined,
+    ): number => {
+      if (!d && d !== 0) return 0;
+      return typeof d === 'object' ? d.toNumber() : (d as number);
+    };
+
     return {
-      locked: locked._sum.amount?.toNumber() ?? 0,
-      disbursed: disbursed._sum.amount?.toNumber() ?? 0,
+      locked: toNum(locked._sum.amount),
+      disbursed: toNum(disbursed._sum.amount),
     };
   }
 

@@ -6,6 +6,8 @@ import { DlqService } from './dlq.service';
 import { SecurityEventJob } from './security-event.job';
 import { UsageTrackerModule } from '../observability/usage-tracker/usage-tracker.module';
 import { AuditModule } from '../audit/audit.module';
+import { BalanceLedgerSnapshotJob } from './balance-ledger-snapshot.job';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
   imports: [
@@ -16,9 +18,10 @@ import { AuditModule } from '../audit/audit.module';
     BullModule.registerQueue({ name: 'dead-letter' }),
     UsageTrackerModule,
     AuditModule,
+    PrismaModule,
   ],
   controllers: [JobsController],
-  providers: [DlqService, SecurityEventJob],
-  exports: [DlqService, SecurityEventJob],
+  providers: [DlqService, SecurityEventJob, BalanceLedgerSnapshotJob],
+  exports: [DlqService, SecurityEventJob, BalanceLedgerSnapshotJob],
 })
 export class JobsModule {}

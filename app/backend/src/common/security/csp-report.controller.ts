@@ -18,9 +18,9 @@ export class CspReportController {
   })
   handleCspReport(@Body() report: any) {
     this.loggerService.warn(
-      { cspReport: report },
       'CSP violation reported',
       'CspReportController',
+      { cspReport: report },
     );
 
     return { status: 'ok' };

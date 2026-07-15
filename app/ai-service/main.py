@@ -53,6 +53,19 @@ class HTTPBodyTooLarge(Exception):
         self.observed = observed
 
 
+class HTTPBodyLengthMismatch(Exception):
+    """Internal signal raised when an incoming request body exceeds the
+    declared Content-Length header value. Caught and converted to a
+    400 response by :class:`MaxRequestBodySizeMiddleware`."""
+
+    def __init__(self, declared: int, observed: int):
+        super().__init__(
+            f"Observed body size of {observed} bytes exceeds declared Content-Length of {declared} bytes"
+        )
+        self.declared = declared
+        self.observed = observed
+
+
 class MaxRequestBodySizeMiddleware:
     """Reject HTTP requests whose body would exceed ``max_bytes``.
 
@@ -113,6 +126,8 @@ class MaxRequestBodySizeMiddleware:
         if self._is_bypassed(path):
             return await self.app(scope, receive, send)
 
+        declared_content_length = None
+
         # Eager check on Content-Length. If the client declared a body
         # larger than the limit, reject immediately without consuming any
         # bytes off the wire.
@@ -123,16 +138,16 @@ class MaxRequestBodySizeMiddleware:
                     content_length_hdr = value.decode("latin-1")
                     break
             if content_length_hdr is not None:
-                declared = int(content_length_hdr)
-                if declared > self.max_bytes:
+                declared_content_length = int(content_length_hdr)
+                if declared_content_length > self.max_bytes:
                     await self._log_rejection(
                         scope,
-                        declared_or_observed=declared,
+                        declared_or_observed=declared_content_length,
                         reason="declared_size",
                     )
                     return await self._send_413(
                         send,
-                        observed=declared,
+                        observed=declared_content_length,
                         reason="declared_size",
                     )
         except (ValueError, TypeError):
@@ -148,6 +163,12 @@ class MaxRequestBodySizeMiddleware:
             if mtype == "http.request":
                 chunk = message.get("body", b"")
                 total += len(chunk)
+
+                # Check if the streamed bytes exceed the client's declared Content-Length
+                if declared_content_length is not None and total > declared_content_length:
+                    raise HTTPBodyLengthMismatch(declared_content_length, total)
+
+                # Check if the streamed bytes exceed the maximum allowed size limit
                 if total > self.max_bytes:
                     # Signal the exception so that the outer __call__ can
                     # emit a 413 even if the application has already started
@@ -167,6 +188,17 @@ class MaxRequestBodySizeMiddleware:
                 send,
                 observed=exc.observed,
                 reason="streamed_size",
+            )
+        except HTTPBodyLengthMismatch as exc:
+            await self._log_rejection(
+                scope,
+                declared_or_observed=exc.observed,
+                reason="length_mismatch",
+            )
+            await self._send_400_mismatch(
+                send,
+                declared=exc.declared,
+                observed=exc.observed,
             )
 
     async def _send_413(self, send, observed: int, reason: str):
@@ -207,6 +239,34 @@ class MaxRequestBodySizeMiddleware:
         )
         await send({"type": "http.response.body", "body": body})
 
+    async def _send_400_mismatch(self, send, declared: int, observed: int):
+        """Emit a JSON 400 Bad Request response when streamed body size
+        exceeds the declared Content-Length header.
+        """
+        msg = (
+            f"Request body size of {observed} bytes exceeds the declared "
+            f"Content-Length of {declared} bytes."
+        )
+        envelope = ErrorEnvelope(
+            error=ErrorDetail(
+                code="CODE_BODY_LENGTH_MISMATCH",
+                message=msg,
+            )
+        ).model_dump()
+        body = json.dumps(envelope).encode("utf-8")
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 400,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
     async def _log_rejection(
         self,
         scope,
@@ -216,8 +276,8 @@ class MaxRequestBodySizeMiddleware:
         """Emit a structured warning so operators can correlate DoS attempts.
 
         ``reason`` is either ``"declared_size"`` (Content-Length spoofing)
-        or ``"streamed_size"`` (chunked transfer smuggling), so logs
-        differentiate between attack classes.
+        or ``"streamed_size"`` (chunked transfer smuggling), or ``"length_mismatch"``,
+        so logs differentiate between attack classes.
         """
         client = scope.get("client")
         client_str = f"{client[0]}:{client[1]}" if client else "unknown"

@@ -71,6 +71,7 @@ export class ClaimsController {
     return this.claimsService.create(createClaimDto);
   }
 
+  @HttpCacheTtl(30) // Response cached for 30 seconds
   @Get()
   @ApiOperation({
     summary: 'List all claims',

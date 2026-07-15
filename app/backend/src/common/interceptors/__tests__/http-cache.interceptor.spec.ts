@@ -138,7 +138,7 @@ describe('HttpCacheInterceptor', () => {
       await firstValueFrom(
         interceptor.intercept(context, { handle: () => of({}) }),
       );
-      expect(response.getHeader('X-Http-Cache')).toBeUndefined();
+      expect(response.getHeader('X-Edge-Cache-Status')).toBeUndefined();
     });
 
     it('still applies no-store on a path that is otherwise always-skipped', async () => {
@@ -246,7 +246,7 @@ describe('HttpCacheInterceptor', () => {
         'Authorization, Accept-Encoding',
       );
       expect(response.getHeader('ETag')).toMatch(/^"[a-f0-9]{64}"$/);
-      expect(response.getHeader('X-Http-Cache')).toBe('miss');
+      expect(response.getHeader('X-Edge-Cache-Status')).toBe('miss');
     });
 
     it('emits deterministic ETags across key reorderings', async () => {

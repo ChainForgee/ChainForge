@@ -34,7 +34,7 @@ def test_legacy_routes_are_covered_by_yaml():
             # We are looking for legacy routes: they start with /ai/ but not /v1/ai/
             if path.startswith("/ai/") and not path.startswith("/v1/ai/"):
                 # Exclude metrics and ocr which are intentionally not redirected
-                if path not in ("/ai/metrics", "/ai/ocr/process"):
+                if path not in ("/ai/metrics", "/ai/ocr", "/ai/ocr/process"):
                     legacy_routes.add(path)
 
     # Routes covered by exact match
@@ -65,7 +65,7 @@ def test_no_extra_yaml_entries():
         if isinstance(route, APIRoute):
             path = route.path
             if path.startswith("/ai/") and not path.startswith("/v1/ai/"):
-                if path not in ("/ai/metrics", "/ai/ocr/process"):
+                if path not in ("/ai/metrics", "/ai/ocr", "/ai/ocr/process"):
                     legacy_routes.add(path)
 
     # Check that every exact match in YAML actually corresponds to a defined legacy route

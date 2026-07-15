@@ -250,17 +250,49 @@ logger = logging.getLogger(__name__)
 # the ocr_router) need an explicit redirect entry here.  The OCR route is
 # still served by the legacy router above so no redirect is needed for it.
 # ---------------------------------------------------------------------------
-_LEGACY_TO_V1: dict = {
-    "/ai/inference": "/v1/ai/inference",
-    "/ai/proof-of-life": "/v1/ai/proof-of-life",
-    "/ai/anonymize": "/v1/ai/anonymize",
-    "/ai/humanitarian/verify": "/v1/ai/humanitarian/verify",
-}
+import os
+from typing import Dict, List, Tuple, Type
+from pydantic import BaseModel
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
-# Prefix-based redirects for parameterised routes (matched in order).
+class LegacyPrefixMapItem(BaseModel):
+    legacy_prefix: str
+    v1_prefix: str
+
+class LegacyRedirectsConfig(BaseSettings):
+    legacy_to_v1: Dict[str, str]
+    legacy_prefix_map: List[LegacyPrefixMapItem]
+
+    model_config = SettingsConfigDict(
+        yaml_file=os.path.join(os.path.dirname(__file__), "config", "legacy_redirects.yaml"),
+        yaml_file_encoding='utf-8'
+    )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: Type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+        return (YamlConfigSettingsSource(settings_cls),)
+
+_legacy_yaml_path = os.path.join(os.path.dirname(__file__), "config", "legacy_redirects.yaml")
+if not os.path.exists(_legacy_yaml_path):
+    raise RuntimeError(f"Required configuration file not found: {_legacy_yaml_path}")
+
+_legacy_config = LegacyRedirectsConfig()
+
+_LEGACY_TO_V1: dict = _legacy_config.legacy_to_v1
 _LEGACY_PREFIX_MAP: list = [
-    ("/ai/status/", "/v1/ai/status/"),
-    ("/ai/task/", "/v1/ai/task/"),
+    (item.legacy_prefix, item.v1_prefix) for item in _legacy_config.legacy_prefix_map
 ]
 
 

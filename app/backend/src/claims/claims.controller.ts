@@ -40,6 +40,7 @@ import { AppRole } from 'src/auth/app-role.enum';
 import { InternalNotesService } from 'src/common/services/internal-notes.service';
 import { CreateInternalNoteDto } from 'src/common/dto/create-internal-note.dto';
 import { InternalNoteResponseDto } from 'src/common/dto/internal-note-response.dto';
+import { HttpCacheTtl } from 'src/common/decorators/http-cache.decorator';
 
 @ApiTags('Onchain Proxy')
 @ApiBearerAuth('JWT-auth')

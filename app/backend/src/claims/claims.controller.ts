@@ -10,6 +10,7 @@ import {
   Res,
   Version,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { Request as ExpressRequest } from 'express';
 import {
@@ -52,6 +53,7 @@ export class ClaimsController {
   ) {}
 
   @Post()
+  @Throttle({ default: { limit: 100, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Create a claim',
     description: 'Initializes a new claim for a specific campaign.',

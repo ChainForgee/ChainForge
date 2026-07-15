@@ -1,0 +1,19 @@
+name: ChainForge Security Insights
+
+contact:
+  email: security@chainforge.app
+  disclosure: https://github.com/ChainForgee/ChainForge/security/advisories/new
+
+policy:
+  url: https://github.com/ChainForgee/ChainForge/blob/main/SECURITY.md
+
+supported_versions:
+  - version: latest
+    status: supported
+  - version: "1.0"
+    status: unsupported
+
+languages:
+  - rust
+  - typescript
+  - python

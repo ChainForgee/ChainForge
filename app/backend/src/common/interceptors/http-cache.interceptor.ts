@@ -367,7 +367,7 @@ export class HttpCacheInterceptor implements NestInterceptor {
 
   private setDebugHeader(response: Response, value: string): void {
     if (this.debugHeaders) {
-      response.setHeader('X-Http-Cache', value);
+      response.setHeader('X-Edge-Cache-Status', value);
     }
   }
 }

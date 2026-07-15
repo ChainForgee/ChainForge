@@ -60,6 +60,7 @@ export class ClaimLifecycleController {
     return this.claimsService.create(createClaimDto);
   }
 
+  @HttpCacheTtl(30) // Response cached for 30 seconds
   @Get()
   @ApiOperation({
     operationId: 'ClaimsController_findAll_v1',

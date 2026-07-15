@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   Inject,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../common/encryption/encryption.service';
@@ -26,7 +27,7 @@ export class EvidenceService {
     private readonly encryptionService: EncryptionService,
     private readonly auditService: AuditService,
     private readonly fingerprintService: FingerprintService,
-    @Inject(STORAGE_PROVIDER) private readonly storageProvider: StorageProvider,
+    @Optional() @Inject(STORAGE_PROVIDER) private readonly storageProvider: StorageProvider | null,
   ) {
     // Ensure upload directory exists (for backward compatibility)
     if (!existsSync(this.uploadDir)) {

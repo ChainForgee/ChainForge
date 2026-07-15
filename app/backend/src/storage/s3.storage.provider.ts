@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   S3Client,
@@ -13,50 +13,62 @@ import { StorageProvider } from './storage.provider';
 @Injectable()
 export class S3StorageProvider implements StorageProvider {
   private readonly logger = new Logger(S3StorageProvider.name);
-  private readonly s3Client: S3Client;
-  private readonly bucket: string;
+  private s3Client: S3Client | null = null;
+  private bucket: string | null = null;
 
-  constructor(private readonly configService: ConfigService) {
-    const region = this.configService.get<string>(
-      'EVIDENCE_STORAGE_REGION',
-      'us-east-1',
-    );
-    const endpoint = this.configService.get<string>(
-      'EVIDENCE_STORAGE_ENDPOINT',
-    );
-    const accessKeyId = this.configService.get<string>(
-      'EVIDENCE_STORAGE_ACCESS_KEY_ID',
-    );
-    const secretAccessKey = this.configService.get<string>(
-      'EVIDENCE_STORAGE_SECRET_ACCESS_KEY',
-    );
-    this.bucket = this.configService.getOrThrow<string>(
-      'EVIDENCE_STORAGE_BUCKET',
-    );
+  constructor(@Optional() private readonly configService: ConfigService) {
+    if (configService) {
+      const region = configService.get<string>(
+        'EVIDENCE_STORAGE_REGION',
+        'us-east-1',
+      );
+      const endpoint = configService.get<string>('EVIDENCE_STORAGE_ENDPOINT');
+      const accessKeyId = configService.get<string>(
+        'EVIDENCE_STORAGE_ACCESS_KEY_ID',
+      );
+      const secretAccessKey = configService.get<string>(
+        'EVIDENCE_STORAGE_SECRET_ACCESS_KEY',
+      );
+      this.bucket = configService.get<string>('EVIDENCE_STORAGE_BUCKET');
 
-    this.s3Client = new S3Client({
-      region,
-      endpoint,
-      credentials:
-        accessKeyId && secretAccessKey
-          ? {
-              accessKeyId,
-              secretAccessKey,
-            }
-          : undefined,
-      forcePathStyle: this.configService.get<boolean>(
-        'EVIDENCE_STORAGE_FORCE_PATH_STYLE',
-        false,
-      ),
-    });
+      if (this.bucket) {
+        this.s3Client = new S3Client({
+          region,
+          endpoint,
+          credentials:
+            accessKeyId && secretAccessKey
+              ? {
+                  accessKeyId,
+                  secretAccessKey,
+                }
+              : undefined,
+          forcePathStyle: configService.get<boolean>(
+            'EVIDENCE_STORAGE_FORCE_PATH_STYLE',
+            false,
+          ),
+        });
 
-    this.logger.log('S3 Storage Provider initialized');
+        this.logger.log('S3 Storage Provider initialized');
+      }
+    }
+  }
+
+  private ensureInitialized(): asserts this is {
+    s3Client: S3Client;
+    bucket: string;
+  } {
+    if (!this.s3Client || !this.bucket) {
+      throw new Error(
+        'Storage provider not initialized: EVIDENCE_STORAGE_BUCKET is not set',
+      );
+    }
   }
 
   async signPresignedUrl(
     key: string,
     options?: { contentType?: string; expiresIn?: number },
   ): Promise<string> {
+    this.ensureInitialized();
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -72,6 +84,7 @@ export class S3StorageProvider implements StorageProvider {
     key: string,
     options?: { expiresIn?: number },
   ): Promise<string> {
+    this.ensureInitialized();
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -83,6 +96,7 @@ export class S3StorageProvider implements StorageProvider {
   }
 
   async fileExists(key: string): Promise<boolean> {
+    this.ensureInitialized();
     try {
       const command = new HeadObjectCommand({
         Bucket: this.bucket,
@@ -99,6 +113,7 @@ export class S3StorageProvider implements StorageProvider {
   }
 
   async deleteFile(key: string): Promise<void> {
+    this.ensureInitialized();
     const command = new DeleteObjectCommand({
       Bucket: this.bucket,
       Key: key,

@@ -3,6 +3,7 @@ import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-option
 import { ConfigService } from '@nestjs/config';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import helmet, { HelmetOptions } from 'helmet';
+import { CspReportController } from './csp-report.controller';
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:3000',
@@ -87,6 +88,7 @@ const buildHelmetOptions = (config: ConfigService): HelmetOptions => {
             objectSrc: ["'none'"],
             mediaSrc: ["'self'"],
             frameSrc: ["'none'"],
+            reportUri: '/api/v1/csp-report',
           },
         }
       : false,
@@ -280,5 +282,7 @@ export const createRateLimiter = (config: ConfigService): RequestHandler => {
  * If cookie-based session management or any browser-managed credentials are introduced 
  * in the future, CSRF protection middleware MUST be implemented.
  */
-@Module({})
+@Module({
+  controllers: [CspReportController],
+})
 export class SecurityModule {}

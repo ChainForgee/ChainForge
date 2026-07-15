@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import helmet, { HelmetOptions } from 'helmet';
 import { CspReportController } from './csp-report.controller';
+import { LoggerModule } from '../../logger/logger.module';
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:3000',
@@ -283,6 +284,7 @@ export const createRateLimiter = (config: ConfigService): RequestHandler => {
  * in the future, CSRF protection middleware MUST be implemented.
  */
 @Module({
+  imports: [LoggerModule],
   controllers: [CspReportController],
 })
 export class SecurityModule {}

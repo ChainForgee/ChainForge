@@ -18,6 +18,7 @@ import {
   createHelmetMiddleware,
   createRateLimiter,
 } from './common/security/security.module';
+import { RedisService } from '@liaoliaots/nestjs-redis';
 
 async function bootstrap() {
   // Load environment variables
@@ -49,7 +50,7 @@ async function bootstrap() {
   app.use(createHelmetMiddleware(configService));
   app.use(createCorsOriginValidator(configService));
   app.enableCors(buildCorsOptions(configService));
-  app.use(createRateLimiter(configService));
+  app.use(createRateLimiter(configService, app.get(RedisService)));
   app.use(compression());
 
   // Global prefix

@@ -18,6 +18,8 @@ from exceptions import AIServiceError
 from schemas.errors import ErrorDetail, ErrorEnvelope
 import time
 import metrics
+import email.utils
+from datetime import datetime, timezone
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -352,6 +354,35 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
+def get_sunset_header_value() -> str:
+    val = settings.legacy_retirement_date
+    if not val:
+        return ""
+    val = val.strip()
+    # Try parsing various date formats to normalize to RFC 1123
+    for fmt in (
+        "%Y-%m-%d",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%d %H:%M:%S",
+        "%a, %d %b %Y %H:%M:%S %Z",
+        "%a, %d %b %Y %H:%M:%S",
+    ):
+        try:
+            dt = datetime.strptime(val, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return email.utils.format_datetime(dt, usegmt=True)
+        except ValueError:
+            continue
+    try:
+        dt = email.utils.parsedate_to_datetime(val)
+        return email.utils.format_datetime(dt, usegmt=True)
+    except Exception:
+        pass
+    return val
+
+
 @app.middleware("http")
 async def legacy_redirect_middleware(request: Request, call_next):
     """
@@ -367,25 +398,38 @@ async def legacy_redirect_middleware(request: Request, call_next):
     The /ai/metrics path is also excluded - it has no v1 equivalent.
     """
     path = request.url.path
+    is_legacy = path.startswith("/ai/") and path != "/ai/metrics"
 
-    # Exact-match redirects
-    if path in _LEGACY_TO_V1:
-        target = _LEGACY_TO_V1[path]
-        if request.url.query:
-            target = f"{target}?{request.url.query}"
-        logger.debug(f"Legacy redirect: {path} -> {target}")
-        return RedirectResponse(url=target, status_code=308)
-
-    # Prefix-based redirects (parameterised routes)
-    for legacy_prefix, v1_prefix in _LEGACY_PREFIX_MAP:
-        if path.startswith(legacy_prefix):
-            target = v1_prefix + path[len(legacy_prefix) :]
+    response = None
+    if is_legacy:
+        # Exact-match redirects
+        if path in _LEGACY_TO_V1:
+            target = _LEGACY_TO_V1[path]
             if request.url.query:
                 target = f"{target}?{request.url.query}"
-            logger.debug(f"Legacy prefix redirect: {path} -> {target}")
-            return RedirectResponse(url=target, status_code=308)
+            logger.debug(f"Legacy redirect: {path} -> {target}")
+            response = RedirectResponse(url=target, status_code=308)
+        else:
+            # Prefix-based redirects (parameterised routes)
+            for legacy_prefix, v1_prefix in _LEGACY_PREFIX_MAP:
+                if path.startswith(legacy_prefix):
+                    target = v1_prefix + path[len(legacy_prefix) :]
+                    if request.url.query:
+                        target = f"{target}?{request.url.query}"
+                    logger.debug(f"Legacy prefix redirect: {path} -> {target}")
+                    response = RedirectResponse(url=target, status_code=308)
+                    break
 
-    return await call_next(request)
+    if response is None:
+        response = await call_next(request)
+
+    if is_legacy:
+        sunset_val = get_sunset_header_value()
+        if sunset_val:
+            response.headers["Sunset"] = sunset_val
+        response.headers["Deprecation"] = "true"
+
+    return response
 
 
 @app.middleware("http")

@@ -3,11 +3,13 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Inject,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { AuditService } from '../audit/audit.service';
 import { FingerprintService } from './fingerprint.service';
+import { StorageProvider, STORAGE_PROVIDER } from '../storage/storage.provider';
 import * as fs from 'fs/promises';
 import { existsSync, mkdirSync } from 'fs';
 import * as path from 'path';
@@ -24,11 +26,99 @@ export class EvidenceService {
     private readonly encryptionService: EncryptionService,
     private readonly auditService: AuditService,
     private readonly fingerprintService: FingerprintService,
+    @Inject(STORAGE_PROVIDER) private readonly storageProvider: StorageProvider,
   ) {
-    // Ensure upload directory exists
+    // Ensure upload directory exists (for backward compatibility)
     if (!existsSync(this.uploadDir)) {
       mkdirSync(this.uploadDir, { recursive: true });
     }
+  }
+
+  /**
+   * Initiate an evidence upload by creating a queue item and signing a presigned URL
+   */
+  async initiateUpload(
+    fileName: string,
+    mimeType: string,
+    totalSize: number,
+    ownerId: string,
+    orgId?: string,
+  ) {
+    const fileKey = `evidence/${crypto.randomUUID()}/${fileName}`;
+    
+    // Create queue item first
+    const item = await this.prisma.evidenceQueueItem.create({
+      data: {
+        fileName,
+        fileHash: null, // Will be filled after upload
+        fingerprint: null, // Will be filled after upload
+        mimeType,
+        size: totalSize,
+        storageKey: fileKey,
+        ownerId,
+        orgId,
+        status: EvidenceStatus.pending,
+      },
+    });
+
+    // Sign presigned URL
+    const presignedUrl = await this.storageProvider.signPresignedUrl(fileKey, {
+      contentType: mimeType,
+      expiresIn: 3600,
+    });
+
+    await this.auditService.record({
+      actorId: ownerId,
+      entity: 'evidence_queue',
+      entityId: item.id,
+      action: 'upload_initiated',
+      metadata: { fileName, size: totalSize, orgId },
+    });
+
+    return {
+      evidenceId: item.id,
+      presignedUrl,
+    };
+  }
+
+  /**
+   * Complete an evidence upload after client has uploaded the file directly to storage
+   */
+  async completeUpload(
+    evidenceId: string,
+    fileHash: string,
+    ownerId: string,
+  ) {
+    const item = await this.prisma.evidenceQueueItem.findUnique({
+      where: { id: evidenceId },
+    });
+
+    if (!item) throw new NotFoundException('Evidence queue item not found');
+    if (item.ownerId !== ownerId) throw new BadRequestException('Not authorized');
+
+    // Verify file exists in storage
+    if (item.storageKey && !(await this.storageProvider.fileExists(item.storageKey))) {
+      throw new BadRequestException('File not found in storage');
+    }
+
+    // Update queue item
+    const updated = await this.prisma.evidenceQueueItem.update({
+      where: { id: evidenceId },
+      data: {
+        fileHash,
+        status: EvidenceStatus.completed,
+      },
+    });
+
+    await this.auditService.record({
+      actorId: ownerId,
+      entity: 'evidence_queue',
+      entityId: evidenceId,
+      action: 'upload_completed',
+      metadata: { fileHash },
+    });
+
+    return updated;
   }
 
   async queueEvidence(

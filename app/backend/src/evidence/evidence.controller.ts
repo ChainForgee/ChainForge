@@ -10,6 +10,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  Body,
 } from '@nestjs/common';
 import { Request as ExpressRequest } from 'express';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
@@ -32,12 +33,56 @@ import {
   evidenceMulterOptions,
   validateUploadedFile,
 } from './file-validation';
+import { InitiatePresignedUploadDto, CompletePresignedUploadDto } from './presigned-upload.dto';
 
 @ApiTags('Evidence Queue')
 @ApiBearerAuth('JWT-auth')
 @Controller('evidence')
 export class EvidenceController {
   constructor(private readonly evidenceService: EvidenceService) {}
+
+  @Post('upload/initiate')
+  @Roles(AppRole.operator, AppRole.admin)
+  @ApiOperation({
+    summary: 'Initiate an evidence upload',
+    description:
+      'Creates an evidence queue item and returns a presigned URL for direct client upload to storage. ' +
+      `Accepts one file (max ${MAX_FILE_SIZE / (1024 * 1024)}MB). ` +
+      `Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}.`,
+  })
+  @ApiCreatedResponse({ description: 'Upload initiated successfully with presigned URL.' })
+  async initiateUpload(
+    @Body() dto: InitiatePresignedUploadDto,
+    @Request() req: ExpressRequest,
+  ) {
+    const ownerId = req.user?.apiKeyId || req.user?.authType || 'system';
+    const orgId = (req.headers['x-org-id'] as string) || undefined;
+    return this.evidenceService.initiateUpload(
+      dto.fileName,
+      dto.mimeType,
+      dto.totalSize,
+      ownerId,
+      orgId,
+    );
+  }
+
+  @Post('upload/:id/complete')
+  @Roles(AppRole.operator, AppRole.admin)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Complete an evidence upload',
+    description:
+      'Marks an evidence queue item as completed after client has uploaded directly to storage.',
+  })
+  @ApiOkResponse({ description: 'Upload completed successfully.' })
+  async completeUpload(
+    @Param('id') id: string,
+    @Body() dto: CompletePresignedUploadDto,
+    @Request() req: ExpressRequest,
+  ) {
+    const ownerId = req.user?.apiKeyId || req.user?.authType || 'system';
+    return this.evidenceService.completeUpload(id, dto.fileHash, ownerId);
+  }
 
   @Post('upload')
   @Roles(AppRole.operator, AppRole.admin)
@@ -48,7 +93,7 @@ export class EvidenceController {
   @UseInterceptors(AnyFilesInterceptor(evidenceMulterOptions))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Upload evidence to queue',
+    summary: '[Legacy] Upload evidence to queue',
     description:
       'Encrypts and stores a single evidence file locally for eventual upload. ' +
       `Accepts one file (max ${MAX_FILE_SIZE / (1024 * 1024)}MB) in the "${UPLOAD_FIELD}" field. ` +

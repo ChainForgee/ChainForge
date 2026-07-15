@@ -135,7 +135,7 @@ export class DeploymentMetadataService {
   /**
    * Map Prisma model to response DTO
    */
-  private mapToResponse(metadata: any): DeploymentMetadataResponseDto {
+  private mapToResponse(metadata: Prisma.DeploymentMetadataGetPayload<{}>): DeploymentMetadataResponseDto {
     return {
       id: metadata.id,
       contractName: metadata.contractName,

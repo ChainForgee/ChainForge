@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import compression from 'compression';
+import express from 'express';
 import { RequestIdInterceptor } from './common/interceptors/request-id.interceptor';
 import {
   buildCorsOptions,
@@ -51,6 +52,16 @@ async function bootstrap() {
   app.enableCors(buildCorsOptions(configService));
   app.use(createRateLimiter(configService));
   app.use(compression());
+
+  // Body parser for CSP reports with 8KiB limit
+  // Browsers send CSP reports as application/csp-report or application/json
+  app.use(
+    '/api/v1/csp-report',
+    express.json({
+      type: ['application/csp-report', 'application/json'],
+      limit: '8kb',
+    }),
+  );
 
   // Global prefix
   app.setGlobalPrefix('api');

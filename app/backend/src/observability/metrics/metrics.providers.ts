@@ -141,4 +141,11 @@ export const metricsProviders = [
     help: 'Total number of analytics cache invalidations',
     labelNames: ['reason'],
   }),
+
+  // CSP Violation Metrics
+  makeCounterProvider({
+    name: 'csp_violations_total',
+    help: 'Total number of CSP violations reported',
+    labelNames: ['directive'],
+  }),
 ];

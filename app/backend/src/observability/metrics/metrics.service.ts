@@ -47,6 +47,8 @@ export class MetricsService {
     public emailDeliveryCounter: Counter<string>,
     @InjectMetric('email_delivery_duration_seconds')
     public emailDeliveryDuration: Histogram<string>,
+    @InjectMetric('csp_violations_total')
+    public cspViolationsCounter: Counter<string>,
   ) {}
 
   /**
@@ -242,5 +244,12 @@ export class MetricsService {
     if (status === 'failed') {
       this.errorRateCounter.inc({ error_type: 'email_delivery_failure' });
     }
+  }
+
+  /**
+   * Increment the CSP violation counter.
+   */
+  incrementCspViolation(directive: string): void {
+    this.cspViolationsCounter.inc({ directive: directive.slice(0, 50) });
   }
 }

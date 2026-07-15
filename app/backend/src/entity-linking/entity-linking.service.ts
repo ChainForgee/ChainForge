@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import {
   CreateEntityLinkDto,
   LinkEntityResult,
@@ -57,7 +58,7 @@ export class EntityLinkingService {
     }
 
     // Create entity link
-    const linkData: any = {
+    const linkData: Prisma.EntityLinkCreateInput = {
       sourceType: dto.sourceType,
       sourceId: dto.sourceId,
       extractedName: dto.extractedName,
@@ -65,23 +66,23 @@ export class EntityLinkingService {
       entityType: dto.entityType,
       confidenceScore: dto.confidenceScore,
       matchMethod,
-      metadata: dto.metadata ? JSON.parse(JSON.stringify(dto.metadata)) : null,
+      metadata: dto.metadata ? JSON.parse(JSON.stringify(dto.metadata)) : Prisma.DbNull,
     };
 
     // Set the appropriate registry relation
     if (registryRecordId) {
       switch (dto.entityType) {
         case 'organization':
-          linkData.organizationId = registryRecordId;
+          linkData.organization = { connect: { id: registryRecordId } };
           break;
         case 'location':
-          linkData.locationId = registryRecordId;
+          linkData.location = { connect: { id: registryRecordId } };
           break;
         case 'asset':
-          linkData.assetId = registryRecordId;
+          linkData.asset = { connect: { id: registryRecordId } };
           break;
         case 'project':
-          linkData.projectId = registryRecordId;
+          linkData.project = { connect: { id: registryRecordId } };
           break;
       }
     }
@@ -110,7 +111,7 @@ export class EntityLinkingService {
     const limit = query.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: Prisma.EntityLinkWhereInput = {};
 
     if (query.sourceType) {
       where.sourceType = query.sourceType;
@@ -155,9 +156,9 @@ export class EntityLinkingService {
    */
   async getLinksByCampaign(
     campaignId: string,
-    entityType?: string,
+    entityType?: 'organization' | 'location' | 'asset' | 'project',
   ): Promise<LinkEntityResult[]> {
-    const where: any = {
+    const where: Prisma.EntityLinkWhereInput = {
       sourceType: 'campaign',
       sourceId: campaignId,
     };
@@ -179,9 +180,9 @@ export class EntityLinkingService {
    */
   async getLinksByClaim(
     claimId: string,
-    entityType?: string,
+    entityType?: 'organization' | 'location' | 'asset' | 'project',
   ): Promise<LinkEntityResult[]> {
-    const where: any = {
+    const where: Prisma.EntityLinkWhereInput = {
       sourceType: 'claim',
       sourceId: claimId,
     };
@@ -203,9 +204,9 @@ export class EntityLinkingService {
    */
   async getLinksByVerification(
     verificationId: string,
-    entityType?: string,
+    entityType?: 'organization' | 'location' | 'asset' | 'project',
   ): Promise<LinkEntityResult[]> {
-    const where: any = {
+    const where: Prisma.EntityLinkWhereInput = {
       sourceType: 'verification',
       sourceId: verificationId,
     };
@@ -529,7 +530,7 @@ export class EntityLinkingService {
   /**
    * Helper: Map Prisma entity link to result DTO
    */
-  private mapLinkResult(link: any): LinkEntityResult {
+  private mapLinkResult(link: Prisma.EntityLinkGetPayload<Record<string, never>>): LinkEntityResult {
     return {
       id: link.id,
       sourceType: link.sourceType,

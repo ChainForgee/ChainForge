@@ -65,7 +65,7 @@ export class DeploymentMetadataResponseDto {
   commitSha?: string;
   deployer?: string;
   transactionHash?: string;
-  metadata?: Record<string, any>;
+  metadata?: unknown;
   createdAt: Date;
   updatedAt: Date;
 }

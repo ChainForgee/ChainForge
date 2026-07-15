@@ -74,9 +74,19 @@ export class DeploymentMetadataController {
     );
     try {
       return await this.deploymentMetadataService.create(dto);
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.error('Failed to create deployment metadata:', error);
-      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002') {
+      const isPrismaError = (
+        err: unknown
+      ): err is { code: string } => {
+        return (
+          typeof err === 'object' &&
+          err !== null &&
+          'code' in err &&
+          typeof (err as { code: unknown }).code === 'string'
+        );
+      };
+      if (isPrismaError(error) && error.code === 'P2002') {
         throw new BadRequestException(
           `Deployment metadata already exists for ${dto.network}/${dto.contractName}`,
         );

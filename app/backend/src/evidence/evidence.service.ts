@@ -45,7 +45,7 @@ export class EvidenceService {
     orgId?: string,
   ) {
     const fileKey = `evidence/${crypto.randomUUID()}/${fileName}`;
-    
+
     // Create queue item first
     const item = await this.prisma.evidenceQueueItem.create({
       data: {
@@ -84,20 +84,20 @@ export class EvidenceService {
   /**
    * Complete an evidence upload after client has uploaded the file directly to storage
    */
-  async completeUpload(
-    evidenceId: string,
-    fileHash: string,
-    ownerId: string,
-  ) {
+  async completeUpload(evidenceId: string, fileHash: string, ownerId: string) {
     const item = await this.prisma.evidenceQueueItem.findUnique({
       where: { id: evidenceId },
     });
 
     if (!item) throw new NotFoundException('Evidence queue item not found');
-    if (item.ownerId !== ownerId) throw new BadRequestException('Not authorized');
+    if (item.ownerId !== ownerId)
+      throw new BadRequestException('Not authorized');
 
     // Verify file exists in storage
-    if (item.storageKey && !(await this.storageProvider.fileExists(item.storageKey))) {
+    if (
+      item.storageKey &&
+      !(await this.storageProvider.fileExists(item.storageKey))
+    ) {
       throw new BadRequestException('File not found in storage');
     }
 

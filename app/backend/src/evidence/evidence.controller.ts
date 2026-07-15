@@ -33,7 +33,10 @@ import {
   evidenceMulterOptions,
   validateUploadedFile,
 } from './file-validation';
-import { InitiatePresignedUploadDto, CompletePresignedUploadDto } from './presigned-upload.dto';
+import {
+  InitiatePresignedUploadDto,
+  CompletePresignedUploadDto,
+} from './presigned-upload.dto';
 
 @ApiTags('Evidence Queue')
 @ApiBearerAuth('JWT-auth')
@@ -50,7 +53,9 @@ export class EvidenceController {
       `Accepts one file (max ${MAX_FILE_SIZE / (1024 * 1024)}MB). ` +
       `Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}.`,
   })
-  @ApiCreatedResponse({ description: 'Upload initiated successfully with presigned URL.' })
+  @ApiCreatedResponse({
+    description: 'Upload initiated successfully with presigned URL.',
+  })
   async initiateUpload(
     @Body() dto: InitiatePresignedUploadDto,
     @Request() req: ExpressRequest,

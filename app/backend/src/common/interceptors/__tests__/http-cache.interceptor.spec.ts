@@ -203,9 +203,7 @@ describe('HttpCacheInterceptor', () => {
       expect(response.getHeader('Cache-Control')).toBe(
         'private, must-revalidate',
       );
-      expect(response.getHeader('Vary')).toBe(
-        'Authorization, Accept-Encoding',
-      );
+      expect(response.getHeader('Vary')).toBe('Authorization, Accept-Encoding');
       expect(response.getHeader('ETag')).toMatch(/^"[a-f0-9]{64}"$/);
     });
 
@@ -242,9 +240,7 @@ describe('HttpCacheInterceptor', () => {
       expect(response.getHeader('Cache-Control')).toBe(
         'private, must-revalidate',
       );
-      expect(response.getHeader('Vary')).toBe(
-        'Authorization, Accept-Encoding',
-      );
+      expect(response.getHeader('Vary')).toBe('Authorization, Accept-Encoding');
       expect(response.getHeader('ETag')).toMatch(/^"[a-f0-9]{64}"$/);
       expect(response.getHeader('X-Http-Cache')).toBe('miss');
     });
@@ -355,7 +351,10 @@ describe('HttpCacheInterceptor', () => {
           }),
         );
         expect(result).toBeUndefined();
-        return { status: next.response.statusCode, etag: next.response.getHeader('ETag') };
+        return {
+          status: next.response.statusCode,
+          etag: next.response.getHeader('ETag'),
+        };
       };
 
       it('returns 304 on exact strong ETag match', async () => {

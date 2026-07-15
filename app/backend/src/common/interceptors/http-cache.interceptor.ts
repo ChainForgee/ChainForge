@@ -105,9 +105,10 @@ export class HttpCacheInterceptor implements NestInterceptor {
     private readonly reflector: Reflector,
     configService: ConfigService,
   ) {
-    this.enabled = (configService.get<string>('HTTP_CACHE_ENABLED') ?? 'true')
-      .toLowerCase()
-      !== 'false';
+    this.enabled =
+      (
+        configService.get<string>('HTTP_CACHE_ENABLED') ?? 'true'
+      ).toLowerCase() !== 'false';
 
     const ttlRaw = configService.get<string>('HTTP_CACHE_DEFAULT_TTL');
     const parsedTtl = ttlRaw !== undefined ? Number.parseInt(ttlRaw, 10) : NaN;
@@ -127,8 +128,7 @@ export class HttpCacheInterceptor implements NestInterceptor {
         : MAX_ETAG_PAYLOAD_BYTES;
 
     this.debugHeaders =
-      (configService.get<string>('NODE_ENV') ?? 'development') !==
-      'production';
+      (configService.get<string>('NODE_ENV') ?? 'development') !== 'production';
   }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -188,7 +188,7 @@ export class HttpCacheInterceptor implements NestInterceptor {
         this.markNonCacheable(response);
         return throwError(() => err);
       }),
-      map((data) => this.applyGetHeaders(request, response, data)),
+      map(data => this.applyGetHeaders(request, response, data)),
     );
   }
 
@@ -222,10 +222,7 @@ export class HttpCacheInterceptor implements NestInterceptor {
     // Don't bother hashing huge payloads; ETag is a "free" win only on
     // small responses that we expect to be re-served often.
     const serialized = canonicalStringify(data);
-    if (
-      serialized.length === 0 ||
-      serialized.length > this.maxPayloadBytes
-    ) {
+    if (serialized.length === 0 || serialized.length > this.maxPayloadBytes) {
       if (serialized.length > this.maxPayloadBytes) {
         this.logger.warn(
           `Skipping ETag hash for ${request.method} ${
@@ -310,12 +307,19 @@ export class HttpCacheInterceptor implements NestInterceptor {
 
     // Node Readables expose `.pipe`; Web streams expose `.pipeTo`.
     const candidate = data as { pipe?: unknown; pipeTo?: unknown };
-    if (typeof candidate.pipe === 'function' || typeof candidate.pipeTo === 'function') {
+    if (
+      typeof candidate.pipe === 'function' ||
+      typeof candidate.pipeTo === 'function'
+    ) {
       return false;
     }
 
     // Web Readables expose an async iterator (ReadableStream / Readable.fromWeb).
-    if (typeof (data as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function') {
+    if (
+      typeof (data as { [Symbol.asyncIterator]?: unknown })[
+        Symbol.asyncIterator
+      ] === 'function'
+    ) {
       return false;
     }
 
@@ -348,10 +352,7 @@ export class HttpCacheInterceptor implements NestInterceptor {
     return true;
   }
 
-  private ifNoneMatchMatches(
-    request: Request,
-    etag: string,
-  ): boolean {
+  private ifNoneMatchMatches(request: Request, etag: string): boolean {
     const raw = request.headers['if-none-match'];
     if (raw === undefined) return false;
     const values = normalizeIfNoneMatch(raw);

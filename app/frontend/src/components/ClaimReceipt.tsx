@@ -9,7 +9,13 @@ import { buildExplorerUrl } from '../lib/explorer';
 export interface ClaimReceiptData {
   claimId: string;
   packageId: string;
-  status: 'requested' | 'verified' | 'approved' | 'disbursed' | 'archived';
+  status:
+    | 'requested'
+    | 'verified'
+    | 'approved'
+    | 'disbursed'
+    | 'archived'
+    | 'cancelled';
   amount: number;
   tokenAddress?: string;
   transactionHash?: string;
@@ -39,6 +45,7 @@ export const ClaimReceipt: React.FC<ClaimReceiptProps> = ({
     approved: 'bg-green-50 border-green-200 text-green-900',
     disbursed: 'bg-emerald-50 border-emerald-200 text-emerald-900',
     archived: 'bg-gray-50 border-gray-200 text-gray-900',
+    cancelled: 'bg-red-50 border-red-200 text-red-900',
   };
 
   const statusBadgeColors = {
@@ -47,6 +54,7 @@ export const ClaimReceipt: React.FC<ClaimReceiptProps> = ({
     approved: 'bg-green-100 text-green-800',
     disbursed: 'bg-emerald-100 text-emerald-800',
     archived: 'bg-gray-100 text-gray-800',
+    cancelled: 'bg-red-100 text-red-800',
   };
 
   const formattedDate = useMemo(() => {
@@ -167,7 +175,7 @@ ${claim.transactionHash ? `Transaction Hash: ${claim.transactionHash}` : ''}`.tr
         {claim.tokenAddress && (
           <div className="col-span-2">
             <p className="text-xs font-semibold opacity-75 mb-1">TOKEN ADDRESS</p>
-            <a
+            
               href={buildExplorerUrl('address', claim.tokenAddress)}
               target="_blank"
               rel="noopener noreferrer"
@@ -181,7 +189,7 @@ ${claim.transactionHash ? `Transaction Hash: ${claim.transactionHash}` : ''}`.tr
         {claim.contractAddress && (
           <div className="col-span-2">
             <p className="text-xs font-semibold opacity-75 mb-1">CONTRACT ADDRESS</p>
-            <a
+            
               href={buildExplorerUrl('contract', claim.contractAddress)}
               target="_blank"
               rel="noopener noreferrer"
@@ -195,7 +203,7 @@ ${claim.transactionHash ? `Transaction Hash: ${claim.transactionHash}` : ''}`.tr
         {claim.transactionHash && (
           <div className="col-span-2">
             <p className="text-xs font-semibold opacity-75 mb-1">TRANSACTION HASH</p>
-            <a
+            
               href={buildExplorerUrl('tx', claim.transactionHash)}
               target="_blank"
               rel="noopener noreferrer"

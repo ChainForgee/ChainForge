@@ -97,38 +97,73 @@ class OCRService:
 
         start_time = time.time()
 
-        preprocessed = self.preprocessor.preprocess(
-            image, threshold_method="otsu", denoise=True
-        )
+        # Robustness for rotated / degraded images:
+        # Try multiple orientations and pick the candidate with the highest
+        # number of detected fields (then confidence).
+        candidates = [0, 90, 180, 270]
+        best = None  # (score_fields, score_conf, OCRResult)
 
-        if preprocessed.size[0] == 0 or preprocessed.size[1] == 0:
+        for ang in candidates:
+            rotated = image.rotate(ang, expand=True) if ang else image
+            preprocessed = self.preprocessor.preprocess(
+                rotated, threshold_method="otsu", denoise=True
+            )
+
+            if preprocessed.size[0] == 0 or preprocessed.size[1] == 0:
+                continue
+
+            tesseract_data = self._run_tesseract(preprocessed)
+
+            raw_text = tesseract_data.get("text", "")
+            if isinstance(raw_text, list):
+                raw_text = " ".join(str(t) for t in raw_text if t)
+            raw_text = str(raw_text) if raw_text else ""
+
+            fields = self.field_detector.detect_fields(raw_text)
+
+            # Update per-field confidence (character-level aggregation)
+            total_conf = 0.0
+            for field_name, field_match in fields.items():
+                field_chars = self._extract_field_chars(
+                    tesseract_data, field_match.value
+                )
+                field_match.confidence = self.field_detector.aggregate_confidence(
+                    field_chars
+                )
+                total_conf += field_match.confidence
+
+            score_fields = len(fields)
+            score_conf = total_conf
+
+            ocr_result = OCRResult(
+                fields=fields,
+                raw_text=raw_text,
+                processing_time_ms=0,
+            )
+
+            if best is None:
+                best = (score_fields, score_conf, ocr_result)
+            else:
+                # Prefer more fields; tie-break by confidence
+                if (score_fields, score_conf) > (best[0], best[1]):
+                    best = (score_fields, score_conf, ocr_result)
+
+        if best is None:
             return OCRResult(
                 fields={},
                 raw_text="",
                 processing_time_ms=int((time.time() - start_time) * 1000),
             )
 
-        tesseract_data = self._run_tesseract(preprocessed)
-
-        raw_text = tesseract_data.get("text", "")
-        if isinstance(raw_text, list):
-            raw_text = " ".join(str(t) for t in raw_text if t)
-        raw_text = str(raw_text) if raw_text else ""
-
-        fields = self.field_detector.detect_fields(raw_text)
-
-        for field_name, field_match in fields.items():
-            field_chars = self._extract_field_chars(tesseract_data, field_match.value)
-            field_match.confidence = self.field_detector.aggregate_confidence(
-                field_chars
-            )
-
         latency = time.time() - start_time
         metrics.PIPELINE_STEP_LATENCY.labels(step_name='ocr').observe(latency)
 
+        best_fields = best[2].fields
+        best_raw_text = best[2].raw_text
+
         return OCRResult(
-            fields=fields,
-            raw_text=raw_text,
+            fields=best_fields,
+            raw_text=best_raw_text,
             processing_time_ms=int(latency * 1000),
         )
 

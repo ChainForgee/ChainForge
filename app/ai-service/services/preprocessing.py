@@ -56,8 +56,15 @@ class ImagePreprocessor:
         threshold_method: str = "otsu",
         denoise: bool = True,
     ) -> Image.Image:
+        """Preprocess an image for OCR.
+
+        Robustness goals:
+        - low-contrast documents (contrast normalization + CLAHE)
+        - blurred images (light denoise)
+        - rotated images (handled by OCRService via rotated candidates; preprocess stays deterministic)
+        """
         start_time = time.time()
-       
+
         try:
             if image.size[0] == 0 or image.size[1] == 0:
                 return image.convert("L")
@@ -68,7 +75,18 @@ class ImagePreprocessor:
             if denoise:
                 gray = self.denoise(gray)
 
+            # Contrast normalization for low-contrast images
+            gray_np = self.image_to_numpy(gray)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            gray_np = clahe.apply(gray_np)
+
+            gray = self.numpy_to_image(gray_np)
+
             thresholded = self.apply_threshold(gray, method=threshold_method)
+
+            # Final cleanup: small morphological closing to improve low-contrast/blur robustness
+            kernel = np.ones((3, 3), np.uint8)
+            thresholded = cv2.morphologyEx(thresholded, cv2.MORPH_CLOSE, kernel, iterations=1)
 
             return thresholded
         finally:

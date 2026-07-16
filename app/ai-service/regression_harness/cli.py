@@ -1,7 +1,15 @@
 import os
+import sys
 import json
 import argparse
 from typing import List
+# Ensure this script can be executed directly regardless of CWD / PYTHONPATH.
+# When running as: python app/ai-service/regression_harness/cli.py
+# we want to treat `app/ai-service` as the import root.
+import_path_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if import_path_root not in sys.path:
+    sys.path.insert(0, import_path_root)
+
 from regression_harness.models import EvaluationSample, BoundingBox
 from regression_harness.evaluator import OCREvaluator
 
@@ -54,11 +62,13 @@ def main():
     parser.add_argument("--dataset", default="regression_harness/dataset/ground_truth.json", help="Path to ground truth JSON")
     parser.add_argument("--output", help="Path to save JSON report")
     parser.add_argument("--threshold", type=float, default=0.8, help="Confidence threshold")
-   
+    parser.add_argument("--min_pass_ratio", type=float, default=None, help="If set, CI can enforce minimum pass ratio (0-1).")
+
     args = parser.parse_args()
    
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    # Adjust base_dir if it's currently inside regression_harness
+    # Ensure args.dataset paths work regardless of where this script is run from.
+    # Default expects to be relative to app/ai-service.
     if base_dir.endswith("regression_harness"):
         base_dir = os.path.dirname(base_dir)
         # We want base_dir to be app/ai-service
@@ -81,7 +91,12 @@ def main():
             json.dump(report.to_dict(), f, indent=2)
         print(f"Report saved to {args.output}")
 
-    if report.failed_samples > 0:
+    if args.min_pass_ratio is not None:
+        pass_ratio = (report.passed_samples / report.total_samples) if report.total_samples > 0 else 0
+        print(f"Min pass ratio requirement: {args.min_pass_ratio:.2f}, actual: {pass_ratio:.2f}")
+        if pass_ratio < args.min_pass_ratio:
+            exit(1)
+    elif report.failed_samples > 0:
         exit(1)
 
 if __name__ == "__main__":

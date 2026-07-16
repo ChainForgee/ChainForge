@@ -88,6 +88,7 @@ class HumanitarianVerificationService:
                             system_prompt=prompt["system"],
                             user_prompt=prompt["user"],
                             timeout=timeout,
+                            prompt_variant=prompt_variant,
                         )
                         parsed = self._parse_json_response(raw_content)
                         if breaker:
@@ -143,14 +144,22 @@ class HumanitarianVerificationService:
         system_prompt: str,
         user_prompt: str,
         timeout: Optional[float] = None,
+        prompt_variant: Optional[str] = None,
     ) -> str:
-        if provider == "test":
-            return self._call_test(model, system_prompt, user_prompt)
-        if provider == "openai":
-            return self._call_openai(model, system_prompt, user_prompt, timeout)
-        if provider == "groq":
-            return self._call_groq(model, system_prompt, user_prompt, timeout)
-        raise ValueError(f"Unsupported provider: {provider}")
+        from tracing.otel_setup import get_tracer
+        tracer = get_tracer()
+        with tracer.start_as_current_span("humanitarian_verification.call_provider") as span:
+            span.set_attribute("model", model)
+            if prompt_variant:
+                span.set_attribute("prompt_variant", prompt_variant)
+            
+            if provider == "test":
+                return self._call_test(model, system_prompt, user_prompt)
+            if provider == "openai":
+                return self._call_openai(model, system_prompt, user_prompt, timeout, prompt_variant=prompt_variant)
+            if provider == "groq":
+                return self._call_groq(model, system_prompt, user_prompt, timeout, prompt_variant=prompt_variant)
+            raise ValueError(f"Unsupported provider: {provider}")
 
     def _call_openai(
         self,
@@ -158,17 +167,24 @@ class HumanitarianVerificationService:
         system_prompt: str,
         user_prompt: str,
         timeout: Optional[float] = None,
+        prompt_variant: Optional[str] = None,
     ) -> str:
-        if not settings.openai_api_key:
-            raise RuntimeError("OpenAI API key is not configured")
-        return self._call_chat_completion_api(
-            base_url="https://api.openai.com/v1/chat/completions",
-            api_key=settings.openai_api_key,
-            model=model,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            timeout=timeout,
-        )
+        from tracing.otel_setup import get_tracer
+        tracer = get_tracer()
+        with tracer.start_as_current_span("humanitarian_verification.call_openai") as span:
+            span.set_attribute("model", model)
+            if prompt_variant:
+                span.set_attribute("prompt_variant", prompt_variant)
+            if not settings.openai_api_key:
+                raise RuntimeError("OpenAI API key is not configured")
+            return self._call_chat_completion_api(
+                base_url="https://api.openai.com/v1/chat/completions",
+                api_key=settings.openai_api_key,
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                timeout=timeout,
+            )
 
     def _call_groq(
         self,
@@ -176,17 +192,24 @@ class HumanitarianVerificationService:
         system_prompt: str,
         user_prompt: str,
         timeout: Optional[float] = None,
+        prompt_variant: Optional[str] = None,
     ) -> str:
-        if not settings.groq_api_key:
-            raise RuntimeError("Groq API key is not configured")
-        return self._call_chat_completion_api(
-            base_url="https://api.groq.com/openai/v1/chat/completions",
-            api_key=settings.groq_api_key,
-            model=model,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            timeout=timeout,
-        )
+        from tracing.otel_setup import get_tracer
+        tracer = get_tracer()
+        with tracer.start_as_current_span("humanitarian_verification.call_groq") as span:
+            span.set_attribute("model", model)
+            if prompt_variant:
+                span.set_attribute("prompt_variant", prompt_variant)
+            if not settings.groq_api_key:
+                raise RuntimeError("Groq API key is not configured")
+            return self._call_chat_completion_api(
+                base_url="https://api.groq.com/openai/v1/chat/completions",
+                api_key=settings.groq_api_key,
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                timeout=timeout,
+            )
 
     def _call_chat_completion_api(
         self,

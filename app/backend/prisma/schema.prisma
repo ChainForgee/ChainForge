@@ -565,6 +565,7 @@ model RegistryOrganization {
   name        String
   aliases     String?  // JSON array of alternative names
   externalId  String?  // External system identifier
+  provider    String?
   metadata    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -573,6 +574,7 @@ model RegistryOrganization {
 
   @@index([registryId])
   @@index([name])
+  @@unique([provider, externalId])
 }
 
 /// Canonical registry for locations with stable IDs
@@ -586,6 +588,7 @@ model RegistryLocation {
   coordinates Json?    // { lat: number, lng: number }
   aliases     String?  // JSON array of alternative names
   externalId  String?  // External system identifier
+  provider    String?
   metadata    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -595,6 +598,7 @@ model RegistryLocation {
   @@index([registryId])
   @@index([name])
   @@index([country, region])
+  @@unique([provider, externalId])
 }
 
 /// Canonical registry for assets with stable IDs
@@ -605,6 +609,7 @@ model RegistryAsset {
   type        String?  // e.g., "vehicle", "warehouse", "equipment"
   category    String?
   externalId  String?  // External system identifier
+  provider    String?
   metadata    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -614,6 +619,7 @@ model RegistryAsset {
   @@index([registryId])
   @@index([name])
   @@index([type])
+  @@unique([provider, externalId])
 }
 
 /// Canonical registry for projects with stable IDs
@@ -626,6 +632,7 @@ model RegistryProject {
   startDate   DateTime?
   endDate     DateTime?
   externalId  String?  // External system identifier
+  provider    String?
   metadata    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -635,6 +642,7 @@ model RegistryProject {
   @@index([registryId])
   @@index([name])
   @@index([status])
+  @@unique([provider, externalId])
 }
 
 enum EntityLinkSourceType {

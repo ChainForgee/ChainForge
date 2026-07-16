@@ -264,10 +264,15 @@ _LEGACY_PREFIX_MAP: list = [
 ]
 
 
+from tracing.otel_setup import setup_tracing
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up ChainForge AI Service...")
+    setup_tracing()
     if not settings.validate_api_keys():
+
         logger.warning("No API keys configured. AI features will be unavailable.")
     else:
         provider = settings.get_active_provider()

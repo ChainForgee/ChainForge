@@ -6,10 +6,12 @@ Handles background task processing for heavy inference
 import logging
 import uuid
 import time
+import json
 from typing import Any, Dict, Optional
 from celery import Celery
 from celery.result import AsyncResult
 import httpx
+import redis
 
 import metrics
 from config import settings
@@ -70,8 +72,32 @@ def get_process_heavy_inference_task():
     
     return process_heavy_inference_task
 
-# Task status storage (in production, use Redis with proper TTL)
-task_results: Dict[str, Dict[str, Any]] = {}
+# Lazy Redis client initialization - defers connection until needed
+redis_client = None
+
+def get_redis_client() -> redis.Redis:
+    """
+    Get or initialize the Redis client.
+    """
+    global redis_client
+    if redis_client is None:
+        redis_client = redis.from_url(settings.redis_url, decode_responses=True)
+    return redis_client
+
+
+def set_status(task_id: str, payload: Dict[str, Any]) -> None:
+    """
+    Write task status payload directly to Redis with a 24-hour TTL.
+    """
+    try:
+        r = get_redis_client()
+        key = f"task_status:{task_id}"
+        # TTL of 24 hours (86400 seconds)
+        r.setex(key, 86400, json.dumps(payload))
+    except Exception as e:
+        logger.error(f"Failed to write task status to Redis: {e}")
+
+
 pii_scrubber_service = PIIScrubberService()
 humanitarian_verification_service = HumanitarianVerificationService()
 
@@ -91,12 +117,13 @@ def update_task_status(
         result: Task result data (if completed)
         error: Error message (if failed)
     """
-    task_results[task_id] = {
+    payload = {
         'status': status,
         'result': result,
         'error': error,
         'updated_at': time.time()
     }
+    set_status(task_id, payload)
 
 
 def send_webhook_notification(task_id: str, status: str, result: Any = None, error: str = None) -> None:
@@ -373,20 +400,22 @@ def get_task_status(task_id: str) -> Dict[str, Any]:
                 'task_id': task_id,
                 'status': 'processing',
             }
-        else:
-            return {
-                'task_id': task_id,
-                'status': 'pending',
-            }
     except Exception:
         pass
     
-    # Fall back to local storage
-    if task_id in task_results:
-        return {
-            'task_id': task_id,
-            **task_results[task_id]
-        }
+    # Fall back to Redis storage
+    try:
+        r = get_redis_client()
+        key = f"task_status:{task_id}"
+        data = r.get(key)
+        if data:
+            payload = json.loads(data)
+            return {
+                'task_id': task_id,
+                **payload
+            }
+    except Exception as e:
+        logger.error(f"Failed to read task status from Redis: {e}")
     
     return {
         'task_id': task_id,

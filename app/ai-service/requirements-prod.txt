@@ -49,3 +49,7 @@ slowapi==0.1.9
 # System monitoring
 psutil==5.9.8
 prometheus-client==0.20.0
+opentelemetry-api==1.25.0
+opentelemetry-sdk==1.25.0
+opentelemetry-exporter-otlp-proto-http==1.25.0
+

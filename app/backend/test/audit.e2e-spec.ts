@@ -5,11 +5,6 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { App } from 'supertest/types';
 import { createHash } from 'node:crypto';
 
-type ApiResponse<T> = {
-  success: boolean;
-  data: T;
-  message?: string;
-};
 
 
 

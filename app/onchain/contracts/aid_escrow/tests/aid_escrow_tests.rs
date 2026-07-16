@@ -651,16 +651,15 @@ fn test_claim_with_proof_oversized_fails() {
     // 1. Generate an oversized proof vector containing 33 elements (limit is 32)
     let mut oversized_proof = Vec::new(&env);
     for _ in 0..33 {
-        oversized_proof.push_back(String::from_str(&env, "a"));
+        oversized_proof.push_back(soroban_sdk::String::from_str(&env, "a"));
     }
 
     // 2. Instantiate dummy variables for the invocation
     let dummy_id = 1u64;
     let dummy_claimant = Address::generate(&env);
 
-    // 3. Setup your contract client (replace AidEscrowClient with your exact contract client name)
-    // Note: If AidEscrowClient has a different constructor in this test file, match its existing pattern.
-    let contract_id = env.register_contract(None, crate::AidEscrow);
+    // 3. Register the contract using the non-deprecated `.register` method
+    let contract_id = env.register(crate::AidEscrow, ());
     let client = AidEscrowClient::new(&env, &contract_id);
 
     // 4. Try the claim invocation and assert it rejects with our custom error

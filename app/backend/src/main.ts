@@ -12,12 +12,15 @@ import { join } from 'node:path';
 
 import compression from 'compression';
 import { RequestIdInterceptor } from './common/interceptors/request-id.interceptor';
+import { PiiScrubInterceptor } from './common/interceptors/pii-scrub.interceptor';
+import { RedisService as CustomRedisService } from '../cache/redis.service';
 import {
   buildCorsOptions,
   createCorsOriginValidator,
   createHelmetMiddleware,
   createRateLimiter,
 } from './common/security/security.module';
+
 
 async function bootstrap() {
   // Load environment variables
@@ -77,8 +80,13 @@ async function bootstrap() {
     }),
   );
 
+  // Register PII Scrubbing Interceptor
+  const redisService = app.get(CustomRedisService);
+  app.useGlobalInterceptors(new PiiScrubInterceptor(configService, redisService));
+
   // Global interceptors
   app.useGlobalInterceptors(new LoggingInterceptor(logger));
+
 
   // Swagger/OpenAPI Documentation
   const document = SwaggerModule.createDocument(app, buildSwaggerConfig());

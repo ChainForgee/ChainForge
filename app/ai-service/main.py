@@ -482,6 +482,19 @@ async def health_check():
     return {"status": "healthy", "service": "chainforge-ai-service", "version": "1.0.0"}
 
 
+@app.get("/api/v1/pii/patterns")
+async def get_pii_patterns():
+    return {
+        "email": PIIScrubberService.EMAIL_REGEXES,
+        "phone": PIIScrubberService.PHONE_REGEXES,
+        "name": PIIScrubberService.NAME_REGEXES,
+        "location": PIIScrubberService.LOCATION_REGEXES,
+        "date": PIIScrubberService.DATE_REGEXES,
+        "id": PIIScrubberService.ID_REGEXES,
+    }
+
+
+
 @app.get("/health/dependencies")
 async def health_dependencies():
     """Lightweight dependency probe for staging and CI.

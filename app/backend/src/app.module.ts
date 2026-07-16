@@ -45,6 +45,8 @@ import { AdaptiveRateLimitGuard } from './common/guards/adaptive-rate-limit.guar
 import { DeprecationInterceptor } from './common/interceptors/deprecation.interceptor';
 import { HttpCacheInterceptor } from './common/interceptors/http-cache.interceptor';
 import { SandboxModule } from './sandbox/sandbox.module';
+import { RedisService as CustomRedisService } from '../cache/redis.service';
+
 
 @Module({
   imports: [
@@ -135,6 +137,8 @@ import { SandboxModule } from './sandbox/sandbox.module';
   controllers: [AppController],
   providers: [
     AppService,
+    CustomRedisService,
+
     {
       provide: APP_FILTER,
       useClass: AllExceptionsFilter,

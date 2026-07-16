@@ -34,6 +34,13 @@ jobs:
       - name: Lint
         run: pnpm --filter backend run lint
 
+      - name: Run NestJS Route Doctor
+        run: pnpm --filter backend run nestjs-route-doctor
+        env:
+          DATABASE_URL: file:./prisma/dev.db
+          PUBLIC_AUTH_BYPASS: /health,/api/docs,/ai/metrics
+          NODE_ENV: test
+
       - name: Test
         run: pnpm --filter backend run test
 

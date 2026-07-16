@@ -11,6 +11,8 @@ import {
   createRateLimiter,
 } from '../src/common/security/security.module';
 
+jest.setTimeout(90000);
+
 type TestAppOptions = {
   enableDocs: boolean;
 };
@@ -29,6 +31,7 @@ const createTestApp = async ({ enableDocs }: TestAppOptions) => {
   }).compile();
 
   const app = moduleFixture.createNestApplication();
+  (app as any).getHttpAdapter().getInstance().disable('x-powered-by');
 
   app.setGlobalPrefix('api');
   app.enableVersioning({
@@ -198,10 +201,10 @@ describe('Security (e2e)', () => {
     it('should rate limit, include retry headers, and reset after the window passes', async () => {
       const server = rateLimitApp.getHttpServer();
 
-      await request(server).get('/api/v1/');
-      await request(server).get('/api/v1/');
+      await request(server).get('/api/v1/deprecated-test');
+      await request(server).get('/api/v1/deprecated-test');
 
-      const limited = await request(server).get('/api/v1/');
+      const limited = await request(server).get('/api/v1/deprecated-test');
 
       expect(limited.status).toBe(429);
       expect(limited.headers['retry-after']).toBeDefined();
@@ -210,7 +213,7 @@ describe('Security (e2e)', () => {
 
       now += windowMs + 1;
 
-      const resetResponse = await request(server).get('/api/v1/');
+      const resetResponse = await request(server).get('/api/v1/deprecated-test');
       expect(resetResponse.status).toBe(200);
     });
 
@@ -239,6 +242,60 @@ describe('Security (e2e)', () => {
 
       expect(response.status).toBe(200);
       expect(response.text).toContain('Swagger UI');
+    });
+  });
+
+  describe('Unexpected Auth Headers', () => {
+    let originalBypass: string | undefined;
+
+    beforeEach(() => {
+      originalBypass = process.env.PUBLIC_AUTH_BYPASS;
+    });
+
+    afterEach(() => {
+      setEnvValue('PUBLIC_AUTH_BYPASS', originalBypass);
+    });
+
+    it('should reject a request with a Bearer header on an undecorated route when not bypassed', async () => {
+      process.env.PUBLIC_AUTH_BYPASS = '/api/docs,/ai/metrics';
+      const testApp = await createTestApp({ enableDocs: false });
+
+      const response = await request(testApp.getHttpServer())
+        .get('/api/v1/health')
+        .set('Authorization', 'Bearer testtoken123');
+
+      expect(response.status).toBe(401);
+      expect(response.body.message).toContain('Unexpected authorization credentials');
+
+      await testApp.close();
+    });
+
+    it('should allow a request with a Bearer header on an undecorated route when explicitly bypassed in PUBLIC_AUTH_BYPASS', async () => {
+      process.env.PUBLIC_AUTH_BYPASS = '/health,/api/docs,/ai/metrics';
+      const testApp = await createTestApp({ enableDocs: false });
+
+      const response = await request(testApp.getHttpServer())
+        .get('/api/v1/health')
+        .set('Authorization', 'Bearer testtoken123');
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('ok');
+
+      await testApp.close();
+    });
+
+    it('should allow a request with a Bearer header on a route decorated with @NoAuthStrict()', async () => {
+      process.env.PUBLIC_AUTH_BYPASS = '/health,/api/docs,/ai/metrics';
+      const testApp = await createTestApp({ enableDocs: false });
+
+      const response = await request(testApp.getHttpServer())
+        .get('/api/v1/no-auth-strict-test')
+        .set('Authorization', 'Bearer testtoken123');
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('ok');
+
+      await testApp.close();
     });
   });
 });

@@ -20,9 +20,10 @@ import { JobsModule } from './jobs/jobs.module';
 import { RequestCorrelationMiddleware } from './middleware/request-correlation.middleware';
 import { SecurityModule } from './common/security/security.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, DiscoveryModule } from '@nestjs/core';
 import { ApiKeyGuard } from './common/guards/api-key.guard';
 import { RolesGuard } from './auth/roles.guard';
+import { UnexpectedAuthHeaderGuard } from './common/guards/unexpected-auth-header.guard';
 import { ObservabilityModule } from './observability/observability.module';
 import { ClaimsModule } from './claims/claims.module';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
@@ -66,11 +67,16 @@ import { RedisService as CustomRedisService } from '../cache/redis.service';
 
     BullModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          host: configService.get<string>('REDIS_HOST') ?? 'localhost',
-          port: parseInt(configService.get<string>('REDIS_PORT') ?? '6379', 10),
-        },
+      useFactory: (configService: ConfigService) => {
+        const isTest = process.env.NODE_ENV === 'test';
+        return {
+          connection: {
+            host: configService.get<string>('REDIS_HOST') ?? 'localhost',
+            port: parseInt(configService.get<string>('REDIS_PORT') ?? '6379', 10),
+            maxRetriesPerRequest: isTest ? 0 : null,
+            enableReadyCheck: !isTest,
+            retryStrategy: isTest ? () => null : undefined,
+          },
         defaultJobOptions: {
           attempts: 3,
           backoff: {
@@ -86,9 +92,10 @@ import { RedisService as CustomRedisService } from '../cache/redis.service';
             count: 5000,
           },
         },
-      }),
-      inject: [ConfigService],
-    }),
+      };
+    },
+    inject: [ConfigService],
+  }),
     ScheduleModule.forRoot(),
 
     LoggerModule,
@@ -116,14 +123,20 @@ import { RedisService as CustomRedisService } from '../cache/redis.service';
     EntityLinkingModule,
     DeploymentMetadataModule,
     SandboxModule,
+    DiscoveryModule,
     RedisModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        config: {
-          host: configService.get<string>('REDIS_HOST') ?? 'localhost',
-          port: parseInt(configService.get<string>('REDIS_PORT') ?? '6379', 10),
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const isTest = process.env.NODE_ENV === 'test';
+        return {
+          config: {
+            host: configService.get<string>('REDIS_HOST') ?? 'localhost',
+            port: parseInt(configService.get<string>('REDIS_PORT') ?? '6379', 10),
+            maxRetriesPerRequest: isTest ? 0 : 3,
+            retryStrategy: isTest ? () => null : undefined,
+          },
+        };
+      },
       inject: [ConfigService],
     }),
     ThrottlerModule.forRoot([
@@ -149,7 +162,11 @@ import { RedisService as CustomRedisService } from '../cache/redis.service';
     },
     {
       provide: APP_GUARD,
-      useClass: RolesGuard, // runs second — checks request.user.role against @Roles()
+      useClass: UnexpectedAuthHeaderGuard, // checks for unexpected auth headers on undecorated routes
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard, // runs third — checks request.user.role against @Roles()
     },
     {
       provide: APP_GUARD,

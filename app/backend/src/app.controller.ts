@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 import { API_VERSIONS } from './common/constants/api-version.constants';
 import { Public } from './common/decorators/public.decorator';
 import { Deprecated } from './common/decorators/deprecated.decorator';
+import { NoAuthStrict } from './common/decorators/no-auth-strict.decorator';
 
 @ApiTags('App')
 @Controller()
@@ -54,5 +55,12 @@ export class AppController {
   })
   deprecatedTest() {
     return { message: 'This endpoint is deprecated' };
+  }
+
+  @Public()
+  @NoAuthStrict()
+  @Get('no-auth-strict-test')
+  noAuthStrictTest() {
+    return { status: 'ok', message: 'public anonymous access allowed' };
   }
 }

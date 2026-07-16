@@ -814,7 +814,7 @@ impl AidEscrow {
             return Err(Error::ProofTooLarge);
         }
         // ---------------------------------
-        
+
         let key = (symbol_short!("pkg"), id);
         let mut package: Package = env
             .storage()

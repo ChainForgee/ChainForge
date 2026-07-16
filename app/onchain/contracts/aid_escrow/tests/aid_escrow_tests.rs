@@ -664,11 +664,7 @@ fn test_claim_with_proof_oversized_fails() {
     let client = AidEscrowClient::new(&env, &contract_id);
 
     // 4. Try the claim invocation and assert it rejects with our custom error
-    let result = client.try_claim_with_proof(
-        &dummy_id,
-        &dummy_claimant,
-        &oversized_proof,
-    );
+    let result = client.try_claim_with_proof(&dummy_id, &dummy_claimant, &oversized_proof);
 
     assert_eq!(result, Err(Ok(crate::Error::ProofTooLarge)));
 }

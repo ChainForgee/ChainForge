@@ -22,11 +22,12 @@ describe('Health dependencies (e2e)', () => {
         {
           provide: ONCHAIN_ADAPTER_TOKEN,
           useValue: {
-            getContractMetadata: async () => ({
-              version: '1.0.0',
-              name: 'AidEscrow',
-              timestamp: new Date(),
-            }),
+            getContractMetadata: () =>
+              Promise.resolve({
+                version: '1.0.0',
+                name: 'AidEscrow',
+                timestamp: new Date(),
+              }),
           },
         },
         // Empty stubs for deps our method doesn't use, but the

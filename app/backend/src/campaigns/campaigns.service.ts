@@ -53,7 +53,12 @@ export class CampaignsService {
     });
   }
 
-  async findAll(includeArchived = false, ngoId?: string | null, page = 1, limit = 50) {
+  async findAll(
+    includeArchived = false,
+    ngoId?: string | null,
+    page = 1,
+    limit = 50,
+  ) {
     const where: Prisma.CampaignWhereInput = {
       deletedAt: null,
       ...(includeArchived ? {} : { archivedAt: null }),

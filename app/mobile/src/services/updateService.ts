@@ -1,35 +1,48 @@
 import { VersionInfo } from '../types/update';
+import { config } from '../config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// In a real app, this would be a URL to your backend or a config file (e.g., hosted on GitHub or S3)
-const VERSION_CONFIG_URL = 'https://api.chainforge.app/mobile/version';
+const AUTH_TOKEN_KEY = '@ChainForge:AuthToken';
+const VERSION_CONFIG_PATH = '/mobile/version';
+
+export const getAuthToken = async (): Promise<string | null> => {
+  return await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+};
+
+export const setAuthToken = async (token: string): Promise<void> => {
+  await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
+};
+
+export const clearAuthToken = async (): Promise<void> => {
+  await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+};
 
 export const fetchVersionInfo = async (): Promise<VersionInfo> => {
   try {
-    // For now, we'll return mock data. 
-    // In production, uncomment the fetch block.
-    /*
-    const response = await fetch(VERSION_CONFIG_URL);
-    if (!response.ok) throw new Error('Failed to fetch version info');
-    return await response.json();
-    */
-
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    return {
-      latestVersion: '1.1.0',
-      minRequiredVersion: '1.0.0', // Set to something higher than current to test force upgrade
-      releaseNotes: [
-        'Added support for on-chain verification',
-        'Improved sync reliability in low-bandwidth areas',
-        'Fixed a bug in QR code scanning for legacy NGO cards',
-        'Reduced app bundle size by 15%',
-      ],
-      storeUrl: {
-        ios: 'https://apps.apple.com/app/chainforge',
-        android: 'https://play.google.com/store/apps/details?id=com.chainforge.mobile',
-      },
+    const authToken = await getAuthToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
     };
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
+
+    const response = await fetch(`${config.apiUrl}${VERSION_CONFIG_PATH}`, {
+      headers,
+    });
+
+    if (response.status === 401) {
+      // Throw specific error for 401 to let UpdateProvider handle it
+      const error = new Error('Unauthorized: Token expired');
+      (error as any).status = 401;
+      throw error;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch version info: ${response.status}`);
+    }
+
+    return await response.json();
   } catch (error) {
     console.error('UpdateService: Error fetching version info', error);
     throw error;

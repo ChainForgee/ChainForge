@@ -946,23 +946,6 @@
                       },
                       {
                         "key": {
-                          "symbol": "locked"
-                        },
-                        "val": {
-                          "map": [
-                            {
-                              "key": {
-                                "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
-                              },
-                              "val": {
-                                "i128": "30000000"
-                              }
-                            }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
                           "symbol": "pkg_cnt"
                         },
                         "val": {
@@ -983,6 +966,21 @@
                         },
                         "val": {
                           "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "Token"
+                            },
+                            {
+                              "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": "30000000"
                         }
                       }
                     ]

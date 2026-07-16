@@ -27,7 +27,6 @@ use soroban_sdk::{
 
 // --- Storage Keys ---
 const KEY_ADMIN: Symbol = symbol_short!("admin");
-const KEY_TOTAL_LOCKED: Symbol = symbol_short!("locked"); // Map<Address, i128>
 const KEY_VERSION: Symbol = symbol_short!("version");
 const KEY_PKG_COUNTER: Symbol = symbol_short!("pkg_cnt");
 const KEY_CONFIG: Symbol = symbol_short!("config");
@@ -77,6 +76,15 @@ pub struct Config {
     pub min_amount: i128,
     pub max_expires_in: u64,
     pub allowed_tokens: Vec<Address>,
+}
+
+/// Per-token instance-storage key for the locked amount.
+/// Replaces the old `Map<Address, i128>` stored under KEY_TOTAL_LOCKED.
+/// Each token has its own cell: `TotalLocked::Token(token_address) → i128`.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub enum TotalLocked {
+    Token(Address),
 }
 
 #[contracttype]
@@ -630,21 +638,14 @@ impl AidEscrow {
         // --- SOLVENCY CHECK ---
         let contract_balance = Self::token_balance(&env, &token, &env.current_contract_address())?;
 
-        let mut locked_map: Map<Address, i128> = env
-            .storage()
-            .instance()
-            .get(&KEY_TOTAL_LOCKED)
-            .unwrap_or(Map::new(&env));
-
-        let current_locked = locked_map.get(token.clone()).unwrap_or(0);
+        let current_locked = Self::get_locked(&env, &token);
 
         if contract_balance < current_locked + amount {
             return Err(Error::InsufficientFunds);
         }
 
         // --- STATE UPDATES ---
-        locked_map.set(token.clone(), current_locked + amount);
-        env.storage().instance().set(&KEY_TOTAL_LOCKED, &locked_map);
+        Self::set_locked(&env, &token, current_locked + amount);
 
         let created_at = env.ledger().timestamp();
         let claim_starts_at = Self::resolve_claim_starts_at(&env, &metadata, created_at)?;
@@ -730,12 +731,7 @@ impl AidEscrow {
         let unit = 10i128.pow(decimals);
         let contract_balance = Self::token_balance(&env, &token, &env.current_contract_address())?;
 
-        let mut locked_map: Map<Address, i128> = env
-            .storage()
-            .instance()
-            .get(&KEY_TOTAL_LOCKED)
-            .unwrap_or(Map::new(&env));
-        let mut current_locked = locked_map.get(token.clone()).unwrap_or(0);
+        let mut current_locked = Self::get_locked(&env, &token);
 
         // Read the current package counter
         let mut counter: u64 = env.storage().instance().get(&KEY_PKG_COUNTER).unwrap_or(0);
@@ -814,9 +810,8 @@ impl AidEscrow {
             created_ids.push_back(id);
         }
 
-        // Persist updated locked map, counter, and aggregation index
-        locked_map.set(token.clone(), current_locked);
-        env.storage().instance().set(&KEY_TOTAL_LOCKED, &locked_map);
+        // Persist updated locked amount, counter, and aggregation index
+        Self::set_locked(&env, &token, current_locked);
         env.storage().instance().set(&KEY_PKG_COUNTER, &counter);
         env.storage().instance().set(&KEY_PKG_IDX, &idx);
 
@@ -1216,12 +1211,7 @@ impl AidEscrow {
         let contract_balance = Self::token_balance(&env, &token, &env.current_contract_address())?;
 
         // 4. Get total locked amount for the token
-        let locked_map: Map<Address, i128> = env
-            .storage()
-            .instance()
-            .get(&KEY_TOTAL_LOCKED)
-            .unwrap_or(Map::new(&env));
-        let total_locked = locked_map.get(token.clone()).unwrap_or(0);
+        let total_locked = Self::get_locked(&env, &token);
 
         // 5. Calculate available surplus and validate
         let available_surplus = contract_balance - total_locked;
@@ -1274,21 +1264,24 @@ impl AidEscrow {
     }
 
     fn decrement_locked(env: &Env, token: &Address, amount: i128) {
-        let mut locked_map: Map<Address, i128> = env
-            .storage()
+        let current = Self::get_locked(env, token);
+        let new_locked = if current > amount { current - amount } else { 0 };
+        Self::set_locked(env, token, new_locked);
+    }
+
+    /// Returns the amount currently locked for a given token (single-cell read).
+    fn get_locked(env: &Env, token: &Address) -> i128 {
+        env.storage()
             .instance()
-            .get(&KEY_TOTAL_LOCKED)
-            .unwrap_or(Map::new(env));
+            .get(&TotalLocked::Token(token.clone()))
+            .unwrap_or(0)
+    }
 
-        let current = locked_map.get(token.clone()).unwrap_or(0);
-        let new_locked = if current > amount {
-            current - amount
-        } else {
-            0
-        };
-
-        locked_map.set(token.clone(), new_locked);
-        env.storage().instance().set(&KEY_TOTAL_LOCKED, &locked_map);
+    /// Persists the locked amount for a given token (single-cell write).
+    fn set_locked(env: &Env, token: &Address, amount: i128) {
+        env.storage()
+            .instance()
+            .set(&TotalLocked::Token(token.clone()), &amount);
     }
 
     fn validate_token(env: &Env, token: &Address) -> Result<u32, Error> {
@@ -1528,12 +1521,7 @@ impl AidEscrow {
 
     /// Returns the total amount currently locked for a specific token.
     pub fn get_total_locked(env: Env, token: Address) -> i128 {
-        let locked_map: Map<Address, i128> = env
-            .storage()
-            .instance()
-            .get(&KEY_TOTAL_LOCKED)
-            .unwrap_or(Map::new(&env));
-        locked_map.get(token).unwrap_or(0)
+        Self::get_locked(&env, &token)
     }
 
     /// Returns the cumulative amount ever claimed for a specific token.

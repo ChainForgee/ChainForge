@@ -1,9 +1,8 @@
-import { Logger, INestApplication, VersioningType } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Logger, INestApplication, VersioningType, Controller, Get, HttpCode } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
 import {
   buildCorsOptions,
   createCorsOriginValidator,
@@ -12,6 +11,12 @@ import {
 } from '../src/common/security/security.module';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import RedisMock from 'ioredis-mock';
+
+jest.mock('ioredis', () => {
+  const RedisMock = require('ioredis-mock');
+  RedisMock.Redis = RedisMock;
+  return RedisMock;
+});
 
 type TestAppOptions = {
   enableDocs: boolean;
@@ -25,12 +30,42 @@ const setEnvValue = (key: string, value: string | undefined) => {
   }
 };
 
+@Controller()
+class TestController {
+  @Get('health')
+  @HttpCode(200)
+  getHealth() {
+    return { status: 'OK' };
+  }
+
+  @Get()
+  @HttpCode(200)
+  getRoot() {
+    return { message: 'OK' };
+  }
+}
+
 const createTestApp = async ({ enableDocs }: TestAppOptions) => {
+  const mockRedisInstance = new RedisMock();
   const moduleFixture: TestingModule = await Test.createTestingModule({
-    imports: [AppModule],
+    imports: [
+      ConfigModule.forRoot({
+        isGlobal: true,
+      }),
+    ],
+    controllers: [TestController],
+    providers: [
+      {
+        provide: RedisService,
+        useValue: {
+          getOrThrow: () => mockRedisInstance,
+        },
+      },
+    ],
   }).compile();
 
   const app = moduleFixture.createNestApplication();
+  app.getHttpAdapter().getInstance().disable('x-powered-by');
 
   app.setGlobalPrefix('api');
   app.enableVersioning({
@@ -252,13 +287,12 @@ describe('Security (e2e)', () => {
       jest.spyOn(redisService, 'getOrThrow').mockReturnValue(testMockRedis as any);
 
       const server = appInstance.getHttpServer();
-      const results: any[] = [];
+      const responses: any[] = [];
 
       for (let i = 0; i < 100; i += 1) {
-        results.push(request(server).get('/api/v1/'));
+        responses.push(await request(server).get('/api/v1/'));
       }
 
-      const responses = await Promise.all(results);
       const count429 = responses.filter(r => r.status === 429).length;
 
       expect(count429).toBeGreaterThanOrEqual(80);

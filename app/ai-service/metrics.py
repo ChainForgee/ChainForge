@@ -42,6 +42,14 @@ CIRCUIT_STATE_CLOSED = 0
 CIRCUIT_STATE_HALF_OPEN = 1
 CIRCUIT_STATE_OPEN = 2
 
+# Human-readable labels for the encoded gauge values. This keeps the metric
+# values and the Grafana/operational mapping aligned with the same constants.
+CIRCUIT_STATE_LABELS = {
+    CIRCUIT_STATE_CLOSED: 'CLOSED',
+    CIRCUIT_STATE_HALF_OPEN: 'HALF_OPEN',
+    CIRCUIT_STATE_OPEN: 'OPEN',
+}
+
 
 def set_circuit_state(breaker_name: str, state_value: int) -> None:
     """Helper to update the circuit-state gauge from anywhere."""

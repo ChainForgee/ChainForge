@@ -140,6 +140,11 @@ def _sample(name: str, labels: dict) -> float:
 class TestCircuitBreakerMetrics:
     """Verify that CircuitBreaker publishes the metrics defined in metrics.py."""
 
+    def test_circuit_state_labels_use_named_constants(self):
+        assert metrics.CIRCUIT_STATE_LABELS[metrics.CIRCUIT_STATE_CLOSED] == "CLOSED"
+        assert metrics.CIRCUIT_STATE_LABELS[metrics.CIRCUIT_STATE_HALF_OPEN] == "HALF_OPEN"
+        assert metrics.CIRCUIT_STATE_LABELS[metrics.CIRCUIT_STATE_OPEN] == "OPEN"
+
     def test_initial_state_is_published(self):
         # Using a fresh breaker name ensures labels don't collide with other tests.
         CircuitBreaker("metrics-initial", failure_threshold=1, recovery_timeout=0.1)

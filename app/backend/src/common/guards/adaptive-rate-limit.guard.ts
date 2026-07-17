@@ -8,7 +8,6 @@ import {
 } from '@nestjs/common';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import { Request } from 'express';
-import { AppRole } from '../../auth/app-role.enum';
 
 @Injectable()
 export class AdaptiveRateLimitGuard implements CanActivate {

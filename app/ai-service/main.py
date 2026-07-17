@@ -189,7 +189,7 @@ class MaxRequestBodySizeMiddleware:
 
         envelope = ErrorEnvelope(
             error=ErrorDetail(
-                code="PAYLOAD_TOO_LARGE",
+                code=ErrorCode.PAYLOAD_TOO_LARGE,
                 message=msg,
             )
         ).model_dump()

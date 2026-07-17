@@ -108,7 +108,7 @@ pub enum Error {
     TokenTransferFailed = 18,
     // Merkle allowlist root has expired (merkle_root_expires_at <= now)
     AllowlistExpired = 19,
-    ProofTooLarge = 19,
+    ProofTooLarge = 20,
 }
 
 // --- Contract Events (indexer-friendly; stable topics & payloads) ---

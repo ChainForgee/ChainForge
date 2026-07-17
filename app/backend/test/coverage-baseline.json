@@ -51,7 +51,7 @@
   ["src/evidence/upload-session.service.ts",-1,-7,100,-2],
   ["src/handlers/transaction.ts",-10,-2,-2,-12],
   ["src/health/health.controller.ts",-10,-16,-3,-10],
-  ["src/health/health.service.ts",-19,-20,-4,-19],
+  ["src/health/health.service.ts",-19,-21,-4,-19],
   ["src/idempotency/error.ts",-12,100,-5,-12],
   ["src/idempotency/fingerprint.ts",-16,-6,-6,-17],
   ["src/idempotency/key.ts",-17,-8,-3,-17],

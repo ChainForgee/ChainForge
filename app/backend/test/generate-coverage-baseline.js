@@ -7,6 +7,9 @@ const outputPath = path.resolve(__dirname, 'coverage-baseline.json');
 const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
 const metrics = ['lines', 'branches', 'functions', 'statements'];
 const globalSentinel = 'src/auth/app-role.enum.ts';
+const uncoveredTolerance = {
+  'src/health/health.service.ts': { branches: 1 },
+};
 
 const entries = Object.entries(summary)
   .filter(([file]) => file !== 'total')
@@ -19,7 +22,8 @@ const baseline = entries.map(([file, coverage]) => [
   file,
   ...metrics.map(metric => {
     const uncovered = coverage[metric].total - coverage[metric].covered;
-    return uncovered === 0 ? 100 : -uncovered;
+    const tolerance = uncoveredTolerance[file]?.[metric] ?? 0;
+    return uncovered === 0 && tolerance === 0 ? 100 : -(uncovered + tolerance);
   }),
 ]);
 

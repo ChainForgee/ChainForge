@@ -7,6 +7,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppRole } from '../auth/app-role.enum';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
+import { assertNoCycle } from './cycle-check';
 
 type Actor = { apiKeyId?: string; authType?: string; role?: AppRole };
 
@@ -193,6 +194,8 @@ export class ApiKeysService {
           keyPreview: true,
         },
       });
+
+      await assertNoCycle(existing.id, replacement.id, tx);
 
       await tx.apiKey.update({
         where: { id: existing.id },

@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ApiKeysService } from './api-keys.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppRole } from '../auth/app-role.enum';
+import { assertNoCycle } from './cycle-check';
 
 describe('ApiKeysService', () => {
   let service: ApiKeysService;
@@ -187,6 +188,68 @@ describe('ApiKeysService', () => {
           }),
         }),
       );
+    });
+  });
+
+  describe('assertNoCycle', () => {
+    it('rejects a 2-node cycle', async () => {
+      const mockFindUnique = jest.fn((args: { where: { id: string } }) => {
+        if (args.where.id === 'A') return Promise.resolve({ replacedById: 'B' });
+        if (args.where.id === 'B') return Promise.resolve({ replacedById: null });
+        return Promise.resolve(null);
+      });
+
+      const mockPrisma = {
+        apiKey: { findUnique: mockFindUnique },
+      };
+
+      await expect(
+        assertNoCycle('B', 'A', mockPrisma as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('passes when no cycle exists', async () => {
+      const mockFindUnique = jest.fn((args: { where: { id: string } }) => {
+        if (args.where.id === 'B') return Promise.resolve({ replacedById: null });
+        return Promise.resolve(null);
+      });
+
+      const mockPrisma = {
+        apiKey: { findUnique: mockFindUnique },
+      };
+
+      await expect(
+        assertNoCycle('A', 'B', mockPrisma as any),
+      ).resolves.toBeUndefined();
+    });
+
+    it('rejects a chain that already contains a cycle in the database', async () => {
+      const mockFindUnique = jest.fn((args: { where: { id: string } }) => {
+        if (args.where.id === 'X') return Promise.resolve({ replacedById: 'Y' });
+        if (args.where.id === 'Y') return Promise.resolve({ replacedById: 'Z' });
+        if (args.where.id === 'Z') return Promise.resolve({ replacedById: 'X' });
+        return Promise.resolve(null);
+      });
+
+      const mockPrisma = {
+        apiKey: { findUnique: mockFindUnique },
+      };
+
+      await expect(
+        assertNoCycle('newKey', 'X', mockPrisma as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws NotFound if a key in the chain is missing', async () => {
+      const mockFindUnique = jest.fn().mockResolvedValue(null);
+
+      const mockPrisma = {
+        apiKey: { findUnique: mockFindUnique },
+      };
+
+      await expect(
+        assertNoCycle('A', 'missing', mockPrisma as any),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

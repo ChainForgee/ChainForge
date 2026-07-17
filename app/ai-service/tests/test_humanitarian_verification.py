@@ -85,6 +85,10 @@ class TestHumanitarianVerificationService:
             "confidence": 0.74,
             "summary": "Deterministic verification output for testing",
             "verdict": "credible",
+            "criteria_assessment": None,
+            "risk_flags": None,
+            "missing_information": None,
+            "recommended_next_steps": None,
         }
 
     def test_deterministic_verify_claim_outputs_remain_stable_across_runs(self, monkeypatch):

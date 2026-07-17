@@ -13,6 +13,7 @@ from services.humanitarian_prompt import HumanitarianPromptEngine
 from services.circuit_breaker import CircuitBreaker
 from services.test_provider import TestProvider
 from exceptions import AIServiceError
+from schemas.errors import ErrorCode
 
 logger = logging.getLogger(__name__)
 
@@ -226,21 +227,21 @@ class HumanitarianVerificationService:
             logger.error("LLM provider %s request timed out after %s seconds", provider_name, req_timeout)
             raise AIServiceError(
                 message=f"LLM request timed out after {req_timeout}s",
-                code="AI_TIMEOUT",
+                code=ErrorCode.AI_TIMEOUT,
                 details={"provider": provider_name, "timeout_seconds": req_timeout},
             ) from exc
         except httpx.HTTPStatusError as exc:
             logger.error("LLM provider %s returned status %s: %s", provider_name, exc.response.status_code, exc.response.text)
             raise AIServiceError(
                 message=f"LLM request failed with status {exc.response.status_code}",
-                code="AI_PROVIDER_ERROR",
+                code=ErrorCode.AI_PROVIDER_ERROR,
                 details={"provider": provider_name, "status_code": exc.response.status_code},
             ) from exc
         except Exception as exc:
             logger.error("LLM provider %s connection or unexpected error: %s", provider_name, str(exc))
             raise AIServiceError(
                 message=f"LLM connection error: {str(exc)}",
-                code="AI_CONNECTION_ERROR",
+                code=ErrorCode.AI_CONNECTION_ERROR,
                 details={"provider": provider_name},
             ) from exc
 

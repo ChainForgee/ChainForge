@@ -15,7 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from exceptions import AIServiceError
-from schemas.errors import ErrorDetail, ErrorEnvelope
+from schemas.errors import ErrorCode, ErrorDetail, ErrorEnvelope
 import time
 import metrics
 
@@ -706,10 +706,15 @@ async def _legacy_cancel_task(task_id: str):
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc: HTTPException):
     logger.error(f"HTTP Exception: {exc.status_code} - {exc.detail}")
+    # Map status code to ErrorCode
+    try:
+        error_code = ErrorCode(f"HTTP_{exc.status_code}")
+    except ValueError:
+        error_code = ErrorCode.HTTP_500  # Fallback for unknown status codes
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorEnvelope(
-            error=ErrorDetail(code=f"HTTP_{exc.status_code}", message=str(exc.detail))
+            error=ErrorDetail(code=error_code, message=str(exc.detail))
         ).model_dump(),
     )
 
@@ -726,7 +731,7 @@ async def validation_exception_handler(request, exc: RequestValidationError):
         status_code=422,
         content=ErrorEnvelope(
             error=ErrorDetail(
-                code="VALIDATION_ERROR",
+                code=ErrorCode.VALIDATION_ERROR,
                 message="Request validation failed",
                 details=exc.errors(),
             )

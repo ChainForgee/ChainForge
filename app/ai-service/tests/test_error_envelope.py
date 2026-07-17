@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from main import app
 from exceptions import AIServiceError
+from schemas.errors import ErrorCode
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -79,7 +80,7 @@ class TestAIServiceError:
         async def _raise_ai_error():
             raise AIServiceError(
                 message="LLM request timed out",
-                code="AI_TIMEOUT",
+                code=ErrorCode.AI_TIMEOUT,
                 details={"provider": "openai", "timeout_seconds": 30},
             )
 

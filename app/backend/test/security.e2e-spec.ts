@@ -1,5 +1,5 @@
-import { Logger, INestApplication, VersioningType, Controller, Get, HttpCode } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { Logger, INestApplication, VersioningType } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
@@ -11,12 +11,6 @@ import {
 } from '../src/common/security/security.module';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import RedisMock from 'ioredis-mock';
-
-jest.mock('ioredis', () => {
-  const RedisMock = require('ioredis-mock');
-  RedisMock.Redis = RedisMock;
-  return RedisMock;
-});
 
 type TestAppOptions = {
   enableDocs: boolean;
@@ -287,12 +281,13 @@ describe('Security (e2e)', () => {
       jest.spyOn(redisService, 'getOrThrow').mockReturnValue(testMockRedis as any);
 
       const server = appInstance.getHttpServer();
-      const responses: any[] = [];
+      const results: any[] = [];
 
       for (let i = 0; i < 100; i += 1) {
-        responses.push(await request(server).get('/api/v1/'));
+        results.push(request(server).get('/api/v1/'));
       }
 
+      const responses = await Promise.all(results);
       const count429 = responses.filter(r => r.status === 429).length;
 
       expect(count429).toBeGreaterThanOrEqual(80);

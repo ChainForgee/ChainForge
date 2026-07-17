@@ -13,6 +13,16 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -34,8 +44,20 @@ jobs:
       - name: Lint
         run: pnpm --filter backend run lint
 
-      - name: Test
-        run: pnpm --filter backend run test
+      - name: Prepare coverage database
+        working-directory: app/backend
+        env:
+          DATABASE_URL: file:/tmp/chainforge-coverage.db
+        run: pnpm exec prisma migrate deploy
+
+      - name: Test with coverage
+        env:
+          API_KEY: test-api-key-123
+          DATABASE_URL: file:/tmp/chainforge-coverage.db
+          NODE_ENV: test
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: '6379'
+        run: pnpm --filter backend run test:cov
 
       - name: Build
         run: pnpm --filter backend run build

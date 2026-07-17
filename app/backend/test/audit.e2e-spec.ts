@@ -14,7 +14,7 @@ describe('Audit (e2e)', () => {
 
   const base = '/api/v1/audit';
   const testApiKey = 'e2e-test-key-0003';
-  // codeql-disable-next-line js/insufficient-password-hash
+  // codeql[js/insufficient-password-hash]
   const testApiKeyHash = createHash('sha256').update(testApiKey).digest('hex');
   const authHeader = { 'X-Api-Key': testApiKey } as Record<string, string>;
 

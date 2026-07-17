@@ -48,7 +48,6 @@ import { HttpCacheInterceptor } from './common/interceptors/http-cache.intercept
 import { SandboxModule } from './sandbox/sandbox.module';
 import { RedisService as CustomRedisService } from '../cache/redis.service';
 
-
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -72,30 +71,33 @@ import { RedisService as CustomRedisService } from '../cache/redis.service';
         return {
           connection: {
             host: configService.get<string>('REDIS_HOST') ?? 'localhost',
-            port: parseInt(configService.get<string>('REDIS_PORT') ?? '6379', 10),
+            port: parseInt(
+              configService.get<string>('REDIS_PORT') ?? '6379',
+              10,
+            ),
             maxRetriesPerRequest: isTest ? 0 : null,
             enableReadyCheck: !isTest,
             retryStrategy: isTest ? () => null : undefined,
           },
-        defaultJobOptions: {
-          attempts: 3,
-          backoff: {
-            type: 'exponential',
-            delay: 5000,
+          defaultJobOptions: {
+            attempts: 3,
+            backoff: {
+              type: 'exponential',
+              delay: 5000,
+            },
+            removeOnComplete: {
+              age: 3600, // keep for 1 hour
+              count: 1000,
+            },
+            removeOnFail: {
+              age: 24 * 3600, // keep for 24 hours
+              count: 5000,
+            },
           },
-          removeOnComplete: {
-            age: 3600, // keep for 1 hour
-            count: 1000,
-          },
-          removeOnFail: {
-            age: 24 * 3600, // keep for 24 hours
-            count: 5000,
-          },
-        },
-      };
-    },
-    inject: [ConfigService],
-  }),
+        };
+      },
+      inject: [ConfigService],
+    }),
     ScheduleModule.forRoot(),
 
     LoggerModule,
@@ -131,7 +133,10 @@ import { RedisService as CustomRedisService } from '../cache/redis.service';
         return {
           config: {
             host: configService.get<string>('REDIS_HOST') ?? 'localhost',
-            port: parseInt(configService.get<string>('REDIS_PORT') ?? '6379', 10),
+            port: parseInt(
+              configService.get<string>('REDIS_PORT') ?? '6379',
+              10,
+            ),
             maxRetriesPerRequest: isTest ? 0 : 3,
             retryStrategy: isTest ? () => null : undefined,
           },

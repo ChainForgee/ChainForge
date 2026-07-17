@@ -21,7 +21,6 @@ import {
   createRateLimiter,
 } from './common/security/security.module';
 
-
 async function bootstrap() {
   // Load environment variables
   const candidates = [
@@ -82,11 +81,12 @@ async function bootstrap() {
 
   // Register PII Scrubbing Interceptor
   const redisService = app.get(CustomRedisService);
-  app.useGlobalInterceptors(new PiiScrubInterceptor(configService, redisService));
+  app.useGlobalInterceptors(
+    new PiiScrubInterceptor(configService, redisService),
+  );
 
   // Global interceptors
   app.useGlobalInterceptors(new LoggingInterceptor(logger));
-
 
   // Swagger/OpenAPI Documentation
   const document = SwaggerModule.createDocument(app, buildSwaggerConfig());

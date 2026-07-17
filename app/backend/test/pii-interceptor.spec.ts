@@ -2,7 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../cache/redis.service';
 import { PiiScrubInterceptor } from '../src/common/interceptors/pii-scrub.interceptor';
-import { ExecutionContext, CallHandler, UnprocessableEntityException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  CallHandler,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { of } from 'rxjs';
 import axios from 'axios';
 
@@ -10,12 +14,12 @@ jest.mock('axios');
 
 describe('PiiScrubInterceptor', () => {
   let interceptor: PiiScrubInterceptor;
-  let configService: jest.Mocked<ConfigService>;
   let redisService: jest.Mocked<RedisService>;
 
   const mockConfig: Record<string, string> = {
     PII_SCRUB_MODE: 'redact',
-    PII_HIGH_RISK_KEYS: 'email,phone,name,nin,recipientRef,metadata,content,input,output',
+    PII_HIGH_RISK_KEYS:
+      'email,phone,name,nin,recipientRef,metadata,content,input,output',
     AI_SERVICE_URL: 'http://localhost:8000',
   };
 
@@ -40,7 +44,6 @@ describe('PiiScrubInterceptor', () => {
     }).compile();
 
     interceptor = module.get<PiiScrubInterceptor>(PiiScrubInterceptor);
-    configService = module.get(ConfigService);
     redisService = module.get(RedisService);
 
     // Reset mocks
@@ -67,7 +70,9 @@ describe('PiiScrubInterceptor', () => {
   describe('PII scrubbing - redact mode', () => {
     it('should redact common PII patterns in high-risk keys', async () => {
       redisService.get.mockResolvedValue(null);
-      (axios.get as jest.Mock).mockRejectedValue(new Error('AI service offline')); // Force fallback to default patterns
+      (axios.get as jest.Mock).mockRejectedValue(
+        new Error('AI service offline'),
+      ); // Force fallback to default patterns
 
       const body = {
         metadata: {
@@ -92,17 +97,16 @@ describe('PiiScrubInterceptor', () => {
 
     it('should handle deep nesting and arrays', async () => {
       redisService.get.mockResolvedValue(null);
-      (axios.get as jest.Mock).mockRejectedValue(new Error('AI service offline'));
+      (axios.get as jest.Mock).mockRejectedValue(
+        new Error('AI service offline'),
+      );
 
       const body = {
         metadata: {
           nested: {
             email: 'test@example.com',
           },
-          list: [
-            { name: 'John Doe' },
-            { phone: '+2348031234567' },
-          ],
+          list: [{ name: 'John Doe' }, { phone: '+2348031234567' }],
         },
       };
 
@@ -127,7 +131,9 @@ describe('PiiScrubInterceptor', () => {
 
     it('should throw 422 Unprocessable Entity Listing all offending paths', async () => {
       redisService.get.mockResolvedValue(null);
-      (axios.get as jest.Mock).mockRejectedValue(new Error('AI service offline'));
+      (axios.get as jest.Mock).mockRejectedValue(
+        new Error('AI service offline'),
+      );
 
       const body = {
         metadata: {
@@ -139,7 +145,7 @@ describe('PiiScrubInterceptor', () => {
 
       const context = createMockContext(body);
       await expect(
-        interceptor.intercept(context, mockCallHandler)
+        interceptor.intercept(context, mockCallHandler),
       ).rejects.toThrow(UnprocessableEntityException);
 
       try {
@@ -181,7 +187,9 @@ describe('PiiScrubInterceptor', () => {
   describe('Allowlist / JWT subject bypass', () => {
     it('should bypass scrubbing for recipientRef if it matches request user ID/subject', async () => {
       redisService.get.mockResolvedValue(null);
-      (axios.get as jest.Mock).mockRejectedValue(new Error('AI service offline'));
+      (axios.get as jest.Mock).mockRejectedValue(
+        new Error('AI service offline'),
+      );
 
       const body = {
         recipientRef: 'user-jwt-subject-123',
@@ -236,8 +244,15 @@ describe('PiiScrubInterceptor', () => {
 
       const req = context.switchToHttp().getRequest();
       expect(redisService.get).toHaveBeenCalledWith('pii:patterns');
-      expect(axios.get).toHaveBeenCalledWith('http://localhost:8000/api/v1/pii/patterns', { timeout: 3000 });
-      expect(redisService.set).toHaveBeenCalledWith('pii:patterns', mockPatterns, 3600);
+      expect(axios.get).toHaveBeenCalledWith(
+        'http://localhost:8000/api/v1/pii/patterns',
+        { timeout: 3000 },
+      );
+      expect(redisService.set).toHaveBeenCalledWith(
+        'pii:patterns',
+        mockPatterns,
+        3600,
+      );
       expect(req.body.email).toBe('[EMAIL_ADDRESS]');
     });
   });

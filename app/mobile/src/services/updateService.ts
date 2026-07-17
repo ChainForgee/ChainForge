@@ -1,20 +1,20 @@
 import { VersionInfo } from '../types/update';
 import { config } from '../config';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getItem, setItem, removeItem } from './storage';
 
 const AUTH_TOKEN_KEY = '@ChainForge:AuthToken';
 const VERSION_CONFIG_PATH = '/mobile/version';
 
 export const getAuthToken = async (): Promise<string | null> => {
-  return await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+  return await getItem(AUTH_TOKEN_KEY);
 };
 
 export const setAuthToken = async (token: string): Promise<void> => {
-  await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
+  await setItem(AUTH_TOKEN_KEY, token);
 };
 
 export const clearAuthToken = async (): Promise<void> => {
-  await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+  await removeItem(AUTH_TOKEN_KEY);
 };
 
 export const fetchVersionInfo = async (): Promise<VersionInfo> => {

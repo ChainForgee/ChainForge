@@ -5,6 +5,11 @@ declare global {
     interface Request {
       user?: {
         role: AppRole;
+        id?: string;
+        sub?: string;
+        email?: string;
+        address?: string;
+        orgId?: string;
         ngoId?: string | null;
         apiKeyId?: string;
         authType?: 'apiKey' | 'envApiKey';

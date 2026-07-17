@@ -10,18 +10,6 @@ import { RedisService } from '@liaoliaots/nestjs-redis';
 import { Request } from 'express';
 import { AppRole } from '../../auth/app-role.enum';
 
-interface AuthenticatedUser {
-  id?: string;
-  role?: AppRole;
-  ngoId?: string;
-  apiKeyId?: string;
-  authType?: string;
-}
-
-interface ExtendedRequest extends Request {
-  user?: AuthenticatedUser;
-}
-
 @Injectable()
 export class AdaptiveRateLimitGuard implements CanActivate {
   private readonly logger = new Logger(AdaptiveRateLimitGuard.name);
@@ -43,7 +31,7 @@ export class AdaptiveRateLimitGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<ExtendedRequest>();
+    const request = context.switchToHttp().getRequest<Request>();
     const strategy = this.getStrategy(request);
     const { limit, window } = this.limits[strategy];
     const identifier = this.getIdentifier(request);
@@ -77,7 +65,7 @@ export class AdaptiveRateLimitGuard implements CanActivate {
     return true;
   }
 
-  private getStrategy(request: ExtendedRequest): keyof typeof this.limits {
+  private getStrategy(request: Request): keyof typeof this.limits {
     const path = request.path ?? request.url ?? '';
     if (path.includes('/search')) return 'search';
 
@@ -92,7 +80,7 @@ export class AdaptiveRateLimitGuard implements CanActivate {
     return 'public';
   }
 
-  private getIdentifier(request: ExtendedRequest): string {
+  private getIdentifier(request: Request): string {
     const user = request.user;
     if (user?.id) return user.id;
     if (user?.apiKeyId) return user.apiKeyId;

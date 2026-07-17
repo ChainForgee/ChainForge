@@ -82,7 +82,7 @@ export class EntityLinkingController {
   })
   async getLinksByCampaign(
     @Param('campaignId') campaignId: string,
-    @Query('entityType') entityType?: string,
+    @Query('entityType') entityType?: 'organization' | 'location' | 'asset' | 'project',
   ) {
     return this.entityLinkingService.getLinksByCampaign(campaignId, entityType);
   }
@@ -100,7 +100,7 @@ export class EntityLinkingController {
   })
   async getLinksByClaim(
     @Param('claimId') claimId: string,
-    @Query('entityType') entityType?: string,
+    @Query('entityType') entityType?: 'organization' | 'location' | 'asset' | 'project',
   ) {
     return this.entityLinkingService.getLinksByClaim(claimId, entityType);
   }
@@ -119,7 +119,7 @@ export class EntityLinkingController {
   })
   async getLinksByVerification(
     @Param('verificationId') verificationId: string,
-    @Query('entityType') entityType?: string,
+    @Query('entityType') entityType?: 'organization' | 'location' | 'asset' | 'project',
   ) {
     return this.entityLinkingService.getLinksByVerification(
       verificationId,

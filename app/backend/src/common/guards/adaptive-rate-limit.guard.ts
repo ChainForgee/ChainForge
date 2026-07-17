@@ -20,7 +20,6 @@ interface AuthenticatedUser {
 
 interface ExtendedRequest extends Request {
   user?: AuthenticatedUser;
-  path?: string;
 }
 
 @Injectable()

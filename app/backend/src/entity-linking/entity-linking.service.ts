@@ -66,7 +66,7 @@ export class EntityLinkingService {
       entityType: dto.entityType,
       confidenceScore: dto.confidenceScore,
       matchMethod,
-      metadata: dto.metadata ? (dto.metadata as Prisma.JsonValue) : Prisma.DbNull,
+      metadata: dto.metadata ? (dto.metadata as Prisma.InputJsonValue) : undefined,
     };
 
     // Set the appropriate registry relation

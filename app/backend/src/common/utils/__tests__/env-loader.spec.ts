@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { sep } from 'node:path';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { loadEnv, getEnvCandidates } from '../env-loader';
@@ -115,5 +116,5 @@ describe('Unified Env Loader', () => {
 });
 
 function joinParts(...parts: string[]): string {
-  return parts.join(require('node:path').sep);
+  return parts.join(sep);
 }

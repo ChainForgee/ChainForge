@@ -159,7 +159,13 @@ fn run_sequence(ops: Vec<Op>) {
                 let metadata = Map::new(&env);
                 if client
                     .try_create_package(
-                        &admin, &id, &recipient, &amount, &token_addr, &0, &metadata,
+                        &admin,
+                        &id,
+                        &recipient,
+                        &amount,
+                        &token_addr,
+                        &0,
+                        &metadata,
                     )
                     .is_ok()
                 {

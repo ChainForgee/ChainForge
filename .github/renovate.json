@@ -9,21 +9,25 @@
     {
       "matchManagers": ["npm"],
       "groupName": "npm dependencies",
+      "commitMessagePrefix": "chore(npm):",
       "schedule": ["before 5am on monday"]
     },
     {
       "matchManagers": ["cargo"],
       "groupName": "cargo dependencies",
+      "commitMessagePrefix": "chore(cargo):",
       "schedule": ["before 5am on monday"]
     },
     {
       "matchManagers": ["pip_requirements"],
       "groupName": "pip dependencies",
+      "commitMessagePrefix": "chore(pip):",
       "schedule": ["before 5am on monday"]
     },
     {
       "matchManagers": ["github-actions"],
       "groupName": "github-actions dependencies",
+      "commitMessagePrefix": "chore(actions):",
       "schedule": ["before 5am on monday"]
     }
   ],

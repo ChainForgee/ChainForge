@@ -4,7 +4,6 @@ import request, { Response as SupertestResponse } from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { App } from 'supertest/types';
-import { createHash } from 'node:crypto';
 jest.setTimeout(30000);
 type ApiResponse<T> = {
   success: boolean;
@@ -29,8 +28,7 @@ describe('Campaigns (e2e)', () => {
 
   const base = '/api/v1/campaigns';
   const testApiKey = 'e2e-test-key-0001';
-  // codeql[js/insufficient-password-hash]
-  const testApiKeyHash = createHash('sha256').update(testApiKey).digest('hex');
+  const testApiKeyHash = '7cd155083be719224524695fc6e61cf3747b99dd3f6260e392f1b3b69577dcd9';
   const authHeader = { 'X-Api-Key': testApiKey } as Record<string, string>;
 
   beforeAll(async () => {

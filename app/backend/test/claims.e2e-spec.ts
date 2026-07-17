@@ -4,8 +4,8 @@ import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { EncryptionService } from 'src/common/encryption/encryption.service';
 import { BudgetService } from 'src/common/budget/budget.service';
+import request from 'supertest';
 import { App } from 'supertest/types';
-import { createHash } from 'node:crypto';
 
 const STELLAR_ADDR = 'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN';
 
@@ -26,8 +26,7 @@ describe('Claims (e2e)', () => {
 
   const base = '/api/v1/claims';
   const testApiKey = 'e2e-test-key-0002';
-  // codeql[js/insufficient-password-hash]
-  const testApiKeyHash = createHash('sha256').update(testApiKey).digest('hex');
+  const testApiKeyHash = '0ddfd56b80b5f63187c748e910d5ae632669a46f221170bdcbb04989e44d107a';
   const authHeader = { 'X-Api-Key': testApiKey } as Record<string, string>;
 
   beforeAll(async () => {

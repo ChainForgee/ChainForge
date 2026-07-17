@@ -9,9 +9,8 @@
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/src/$1",
     "^cache/(.*)$": "<rootDir>/cache/$1",
-    "^ioredis$": "<rootDir>/test/mocks/ioredis.mock.ts",
-    "^@nestjs/bullmq$": "<rootDir>/test/mocks/bullmq.mock.ts",
     "^@stellar/stellar-sdk$": "<rootDir>/test/mocks/stellar-sdk.mock.ts",
     "^openai$": "<rootDir>/test/mocks/openai.mock.ts"
-  }
+  },
+  "modulePaths": ["<rootDir>"]
 }

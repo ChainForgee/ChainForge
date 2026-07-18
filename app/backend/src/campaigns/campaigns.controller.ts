@@ -35,6 +35,13 @@ import { ExportCampaignsQueryDto } from './dto/export-campaigns.dto';
 import { ApiResponseDto } from '../common/dto/api-response.dto';
 import { Roles } from 'src/auth/roles.decorator';
 import { AppRole } from 'src/auth/app-role.enum';
+import {
+  Pagination,
+  PaginationDefaults,
+  PaginationParams,
+  ApiOkPaginatedResponse,
+} from '../common/decorators/pagination.decorator';
+
 import { Throttle } from '@nestjs/throttler';
 import { OrgOwnershipGuard } from '../common/guards/org-ownership.guard';
 import { CancelAndReissueService } from '../claims/cancel-and-reissue.service';
@@ -42,6 +49,7 @@ import { BudgetService } from '../common/budget/budget.service';
 
 @ApiTags('Campaigns')
 @ApiBearerAuth('JWT-auth')
+@PaginationDefaults({ default: 25, max: 100 })
 @Controller('campaigns')
 export class CampaignsController {
   constructor(
@@ -77,19 +85,20 @@ export class CampaignsController {
     description:
       "Retrieves campaigns. NGO operators only see their own organization's campaigns.",
   })
-  @ApiOkResponse({ description: 'List of campaigns retrieved successfully.' })
+  @ApiOkPaginatedResponse(CreateCampaignDto)
   @ApiUnauthorizedResponse({
     description: 'Missing or invalid authentication credentials.',
   })
   async list(
     @Query('includeArchived', new DefaultValuePipe(false), ParseBoolPipe)
     includeArchived: boolean,
+    @Pagination() pagination: PaginationParams,
     @Req() req: Request,
   ) {
     // Scope to ngoId for NGO role; admins/operators see all
     const ngoId = req.user?.role === AppRole.ngo ? req.user.ngoId : undefined;
-    const campaigns = await this.campaigns.findAll(includeArchived, ngoId);
-    return ApiResponseDto.ok(campaigns, 'Campaigns fetched successfully');
+    const result = await this.campaigns.findAll(includeArchived, ngoId, pagination);
+    return ApiResponseDto.ok(result, 'Campaigns fetched successfully');
   }
 
   @Get(':id')

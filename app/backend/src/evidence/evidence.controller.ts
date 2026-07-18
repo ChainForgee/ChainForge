@@ -78,7 +78,8 @@ export class EvidenceController {
     validateUploadedFile(file);
 
     const ownerId = req.user?.apiKeyId || req.user?.authType || 'system';
-    return this.evidenceService.queueEvidence(file, ownerId);
+    const orgId = req.headers['x-org-id'] as string | undefined;
+    return this.evidenceService.queueEvidence(file, ownerId, orgId);
   }
 
   /**

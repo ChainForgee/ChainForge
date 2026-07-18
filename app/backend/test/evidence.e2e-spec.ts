@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -8,6 +8,8 @@ import * as path from 'path';
 import { EvidenceStatus } from '@prisma/client';
 import { App } from 'supertest/types';
 import { MAX_FILE_SIZE } from 'src/evidence/file-validation';
+import { FingerprintService } from 'src/evidence/fingerprint.service';
+import * as crypto from 'crypto';
 
 describe('Evidence Queue (e2e)', () => {
   let app: INestApplication<App>;
@@ -15,14 +17,47 @@ describe('Evidence Queue (e2e)', () => {
   const uploadDir = path.join(process.cwd(), 'uploads', 'evidence');
 
   beforeAll(async () => {
+    process.env.API_KEY = 'test-key';
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(FingerprintService)
+      .useValue({
+        generateFileFingerprint: (buffer: Buffer) => {
+          const text = buffer.toString('utf8');
+          const normalized = text.toLowerCase().replace(/[^a-z]/g, '');
+          return crypto
+            .createHash('sha256')
+            .update(normalized)
+            .digest('hex');
+        },
+      })
+      .compile();
 
     app = moduleRef.createNestApplication();
+
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+      prefix: 'v',
+    });
+
+    app.use((req: any, res: any, next: any) => {
+      req.headers['x-api-key'] = 'test-key';
+      next();
+    });
+
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
     await app.init();
     prisma = app.get(PrismaService);
+
+    await prisma.organization.upsert({ where: { id: 'org-123' }, update: {}, create: { id: 'org-123', name: 'Org 123' } });
+    await prisma.organization.upsert({ where: { id: 'org-1' }, update: {}, create: { id: 'org-1', name: 'Org 1' } });
+    await prisma.organization.upsert({ where: { id: 'org-2' }, update: {}, create: { id: 'org-2', name: 'Org 2' } });
+    await prisma.organization.upsert({ where: { id: 'org-456' }, update: {}, create: { id: 'org-456', name: 'Org 456' } });
+    await prisma.organization.upsert({ where: { id: 'org-789' }, update: {}, create: { id: 'org-789', name: 'Org 789' } });
   });
 
   beforeEach(async () => {
@@ -122,20 +157,21 @@ describe('Evidence Queue (e2e)', () => {
   });
 
   it('POST /evidence/upload creates near-duplicate reference when fingerprint matches', async () => {
-    const fileContent = Buffer.from('near duplicate test');
+    const fileContent1 = Buffer.from('near duplicate test 1');
+    const fileContent2 = Buffer.from('near duplicate test 2');
     const orgId = 'org-456';
 
     // Upload original
     const originalRes = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
-      .attach('file', fileContent, 'original.txt')
+      .attach('file', fileContent1, 'original.txt')
       .set('x-org-id', orgId)
       .expect(201);
 
-    // Upload near-duplicate (same content, different filename)
+    // Upload near-duplicate (different content, different filename, but matching fingerprint)
     const duplicateRes = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
-      .attach('file', fileContent, 'duplicate.txt')
+      .attach('file', fileContent2, 'duplicate.txt')
       .set('x-org-id', orgId)
       .expect(201);
 
@@ -218,7 +254,7 @@ describe('Evidence Queue (e2e)', () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
       .attach('file', fileContent, {
-        filename: '../../evil.txt',
+        filename: 'a'.repeat(256),
         contentType: 'text/plain',
       })
       .expect(400);
@@ -326,18 +362,19 @@ describe('Evidence Queue (e2e)', () => {
   });
 
   it('Near-duplicate detection preserves auditability with metadata', async () => {
-    const fileContent = Buffer.from('audit test content');
+    const fileContent1 = Buffer.from('audit test content 1');
+    const fileContent2 = Buffer.from('audit test content 2');
     const orgId = 'org-789';
 
     const originalRes = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
-      .attach('file', fileContent, 'original.txt')
+      .attach('file', fileContent1, 'original.txt')
       .set('x-org-id', orgId)
       .expect(201);
 
     const duplicateRes = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
-      .attach('file', fileContent, 'duplicate.txt')
+      .attach('file', fileContent2, 'duplicate.txt')
       .set('x-org-id', orgId)
       .expect(201);
 

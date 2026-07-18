@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 
@@ -7,11 +7,34 @@ describe('DTO validation (e2e)', () => {
   let app: INestApplication;
 
   beforeEach(async () => {
+    process.env.API_KEY = 'test-key';
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     app = moduleFixture.createNestApplication();
+
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+      prefix: 'v',
+    });
+
+    app.use((req: any, res: any, next: any) => {
+      req.headers['x-api-key'] = 'test-key';
+      next();
+    });
+
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+
     await app.init();
   });
 
@@ -30,7 +53,13 @@ describe('DTO validation (e2e)', () => {
   it('rejects unexpected fields (forbidNonWhitelisted) for CreateClaimDto', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/claims')
-      .send({ campaignId: 'c1', amount: 10, recipientRef: 'r1', extra: 'nope' })
+      .send({
+        campaignId: 'c1',
+        amount: 10,
+        recipientRef: 'r1',
+        tokenAddress: 'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN',
+        extra: 'nope',
+      })
       .expect(400);
   });
 
@@ -59,9 +88,12 @@ describe('DTO validation (e2e)', () => {
     // amount sent as string should be transformed to number
     await request(app.getHttpServer())
       .post('/api/v1/claims')
-      .send({ campaignId: 'c1', amount: '12.5', recipientRef: 'r1' })
-      .expect(res => {
-        expect(res.status).toBeGreaterThanOrEqual(200);
-      });
+      .send({
+        campaignId: 'c1',
+        amount: '12.5',
+        recipientRef: 'r1',
+        tokenAddress: 'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN',
+      })
+      .expect(404);
   });
 });

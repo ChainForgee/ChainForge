@@ -438,7 +438,7 @@ model EvidenceQueueItem {
   id            String         @id @default(cuid())
   fileName      String
   filePath      String?        // Path to local encrypted file
-  fileHash      String         @unique // To prevent duplicate uploads globally
+  fileHash      String         // To prevent duplicate uploads globally
   fingerprint   String?        // Stable fingerprint for near-duplicate detection
   mimeType      String
   size          Int
@@ -453,6 +453,7 @@ model EvidenceQueueItem {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
+  @@unique([fileHash, orgId])
   @@index([status])
   @@index([ownerId])
   @@index([fileHash])

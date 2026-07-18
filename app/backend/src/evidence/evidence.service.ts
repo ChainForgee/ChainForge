@@ -164,20 +164,20 @@ export class EvidenceService {
   }
 
   async processUpload(id: string) {
-    const item = await this.prisma.evidenceQueueItem.findUnique({
-      where: { id },
-    });
-
-    if (!item || item.status === EvidenceStatus.completed) return;
-
-    this.logger.log(`Processing upload for ${item.id}`);
-
-    await this.prisma.evidenceQueueItem.update({
-      where: { id },
-      data: { status: EvidenceStatus.uploading },
-    });
-
     try {
+      const item = await this.prisma.evidenceQueueItem.findUnique({
+        where: { id },
+      });
+
+      if (!item || item.status === EvidenceStatus.completed) return;
+
+      this.logger.log(`Processing upload for ${item.id}`);
+
+      await this.prisma.evidenceQueueItem.update({
+        where: { id },
+        data: { status: EvidenceStatus.uploading },
+      });
+
       // MOCK: Simulate upload to S3/Cloud Storage
       await new Promise(resolve => setTimeout(resolve, 2000));
 
@@ -189,18 +189,27 @@ export class EvidenceService {
 
       this.logger.log(`Upload completed for ${item.id}`);
     } catch (err) {
+      if (err instanceof Error && (err.message.includes('P2025') || (err as any).code === 'P2025')) {
+        this.logger.warn(`Evidence queue item ${id} was deleted during processing`);
+        return;
+      }
+
       this.logger.error(
-        `Upload failed for ${item.id}: ${(err as Error).message}`,
+        `Upload failed for ${id}: ${(err as Error).message}`,
       );
 
-      await this.prisma.evidenceQueueItem.update({
-        where: { id },
-        data: {
-          status: EvidenceStatus.failed,
-          retryCount: { increment: 1 },
-          lastError: (err as Error).message,
-        },
-      });
+      try {
+        await this.prisma.evidenceQueueItem.update({
+          where: { id },
+          data: {
+            status: EvidenceStatus.failed,
+            retryCount: { increment: 1 },
+            lastError: (err as Error).message,
+          },
+        });
+      } catch (updateErr) {
+        // Ignore if this fails too due to deletion
+      }
     }
   }
 

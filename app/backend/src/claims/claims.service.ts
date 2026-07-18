@@ -25,6 +25,8 @@ import { AuditService } from '../audit/audit.service';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { BudgetService } from '../common/budget/budget.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PaginationParams } from '../common/decorators/pagination.decorator';
+
 
 type ExpirationCleanupCapableAdapter = OnchainAdapter & {
   revokeAidPackage?: (params: {
@@ -83,6 +85,20 @@ export class ClaimsService {
       createClaimDto.amount,
     );
 
+    const activeClaimsSum = await this.prisma.claim.aggregate({
+      _sum: { amount: true },
+      where: {
+        campaignId: createClaimDto.campaignId,
+        status: {
+          in: ['requested', 'verified', 'approved', 'disbursed'],
+        },
+      },
+    });
+    const currentClaimsTotal = activeClaimsSum._sum.amount || 0;
+    if (currentClaimsTotal + createClaimDto.amount > campaign.budget) {
+      throw new BadRequestException('Campaign funding cap exceeded');
+    }
+
     const claim = await this.prisma.claim.create({
       data: {
         campaignId: createClaimDto.campaignId,
@@ -116,20 +132,37 @@ export class ClaimsService {
     return claim;
   }
 
-  async findAll(page = 1, limit = 50) {
-    const take = Math.min(200, Math.max(1, limit));
-    const skip = (Math.max(1, page) - 1) * take;
+  async findAll(pagination?: PaginationParams) {
+    const limit = pagination?.limit ?? 25;
+    const cursor = pagination?.cursor;
+    const take = limit + 1;
+
     const claims = await this.prisma.claim.findMany({
       where: { deletedAt: null },
       include: { campaign: true },
-      orderBy: { createdAt: 'desc' },
-      skip,
+      orderBy: { id: 'asc' },
       take,
+      ...(cursor
+        ? {
+            cursor: { id: cursor },
+            skip: 1,
+          }
+        : {}),
     });
-    return claims.map(claim => ({
+
+    const hasMore = claims.length > limit;
+    const data = hasMore ? claims.slice(0, limit) : claims;
+    const nextCursor = hasMore ? data[data.length - 1].id : undefined;
+
+    const decryptedData = data.map(claim => ({
       ...claim,
       recipientRef: this.encryptionService.decrypt(claim.recipientRef),
     }));
+
+    return {
+      data: decryptedData,
+      nextCursor,
+    };
   }
 
   async findOne(id: string) {

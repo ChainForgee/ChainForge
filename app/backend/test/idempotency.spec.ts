@@ -9,7 +9,9 @@ import { idempotencyMiddleware } from '../src/idempotency/middleware';
 import { submitTransaction } from '../src/handlers/transaction';
 import { RequestFingerprint } from '../src/idempotency/fingerprint';
 
-const hasDatabase = Boolean(process.env.DATABASE_URL);
+const hasDatabase = Boolean(
+  process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith('postgres'),
+);
 
 let pool: Pool;
 let store: IdempotencyStore;

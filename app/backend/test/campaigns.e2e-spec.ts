@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import request, { Response as SupertestResponse } from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -35,6 +35,13 @@ describe('Campaigns (e2e)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
+
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+      prefix: 'v',
+    });
 
     app.useGlobalPipes(
       new ValidationPipe({
@@ -125,11 +132,11 @@ describe('Campaigns (e2e)', () => {
 
     const res = await request(app.getHttpServer()).get(base).expect(200);
 
-    const body = bodyAs<CampaignResponseDto[]>(res);
+    const body = res.body as { success: boolean; data: { data: CampaignResponseDto[]; nextCursor?: string } };
 
     expect(body.success).toBe(true);
-    expect(Array.isArray(body.data)).toBe(true);
-    expect(body.data.length).toBe(1);
+    expect(Array.isArray(body.data.data)).toBe(true);
+    expect(body.data.data.length).toBe(1);
   });
 
   it('GET /campaigns/:id returns 404 for missing campaign', async () => {

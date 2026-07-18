@@ -24,12 +24,15 @@ import {
   ApiNotFoundResponse,
 } from '@nestjs/swagger';
 
+import { Public } from '../common/decorators/public.decorator';
+
 @ApiTags('Test Error')
+@Public()
 @Controller('test-error')
 export class TestErrorController {
   @ApiOperation({ summary: 'Trigger a generic Error' })
   @ApiInternalServerErrorResponse({ description: 'Generic error triggered.' })
-  @Get('generic')
+  @Get('generic-error')
   getGenericError() {
     throw new Error('This is a generic error');
   }

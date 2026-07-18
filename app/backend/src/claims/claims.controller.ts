@@ -9,6 +9,8 @@ import {
   Request,
   Res,
   Version,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { Request as ExpressRequest } from 'express';
@@ -40,9 +42,17 @@ import { AppRole } from 'src/auth/app-role.enum';
 import { InternalNotesService } from 'src/common/services/internal-notes.service';
 import { CreateInternalNoteDto } from 'src/common/dto/create-internal-note.dto';
 import { InternalNoteResponseDto } from 'src/common/dto/internal-note-response.dto';
+import {
+  Pagination,
+  PaginationDefaults,
+  PaginationParams,
+  ApiOkPaginatedResponse,
+} from '../common/decorators/pagination.decorator';
+import { ApiResponseDto } from '../common/dto/api-response.dto';
 
 @ApiTags('Onchain Proxy')
 @ApiBearerAuth('JWT-auth')
+@PaginationDefaults({ default: 25, max: 100 })
 @Controller('claims')
 export class ClaimsController {
   constructor(
@@ -66,8 +76,9 @@ export class ClaimsController {
   @ApiNotFoundResponse({
     description: 'The specified campaign was not found.',
   })
-  create(@Body() createClaimDto: CreateClaimDto) {
-    return this.claimsService.create(createClaimDto);
+  async create(@Body() createClaimDto: CreateClaimDto) {
+    const claim = await this.claimsService.create(createClaimDto);
+    return ApiResponseDto.ok(claim, 'Claim created successfully');
   }
 
   @Get()
@@ -75,11 +86,10 @@ export class ClaimsController {
     summary: 'List all claims',
     description: 'Retrieves a list of all claims across all campaigns.',
   })
-  @ApiOkResponse({
-    description: 'List of all claims retrieved successfully.',
-  })
-  findAll() {
-    return this.claimsService.findAll();
+  @ApiOkPaginatedResponse(CreateClaimDto)
+  async findAll(@Pagination() pagination: PaginationParams) {
+    const result = await this.claimsService.findAll(pagination);
+    return ApiResponseDto.ok(result, 'Claims fetched successfully');
   }
 
   @Get(':id')
@@ -94,11 +104,13 @@ export class ClaimsController {
   @ApiNotFoundResponse({
     description: 'The specified claim was not found.',
   })
-  findOne(@Param('id') id: string) {
-    return this.claimsService.findOne(id);
+  async findOne(@Param('id') id: string) {
+    const claim = await this.claimsService.findOne(id);
+    return ApiResponseDto.ok(claim, 'Claim fetched successfully');
   }
 
   @Post(':id/verify')
+  @HttpCode(HttpStatus.OK)
   @Roles(AppRole.operator, AppRole.admin)
   @ApiOperation({
     summary: 'Verify a claim',
@@ -116,11 +128,13 @@ export class ClaimsController {
   @ApiNotFoundResponse({
     description: 'The specified claim was not found.',
   })
-  verify(@Param('id') id: string) {
-    return this.claimsService.verify(id);
+  async verify(@Param('id') id: string) {
+    const claim = await this.claimsService.verify(id);
+    return ApiResponseDto.ok(claim, 'Claim verified successfully');
   }
 
   @Post(':id/approve')
+  @HttpCode(HttpStatus.OK)
   @Roles(AppRole.admin)
   @ApiOperation({
     summary: 'Approve a claim',
@@ -138,11 +152,13 @@ export class ClaimsController {
   @ApiNotFoundResponse({
     description: 'The specified claim was not found.',
   })
-  approve(@Param('id') id: string) {
-    return this.claimsService.approve(id);
+  async approve(@Param('id') id: string) {
+    const claim = await this.claimsService.approve(id);
+    return ApiResponseDto.ok(claim, 'Claim approved successfully');
   }
 
   @Post(':id/disburse')
+  @HttpCode(HttpStatus.OK)
   @Roles(AppRole.admin)
   @ApiOperation({
     summary: 'Disburse funds for a claim',
@@ -184,8 +200,9 @@ export class ClaimsController {
   @ApiNotFoundResponse({
     description: 'The specified claim was not found.',
   })
-  disburse(@Param('id') id: string) {
-    return this.claimsService.disburse(id);
+  async disburse(@Param('id') id: string) {
+    const claim = await this.claimsService.disburse(id);
+    return ApiResponseDto.ok(claim, 'Claim disbursed successfully');
   }
 
   @Patch(':id/archive')
@@ -202,8 +219,9 @@ export class ClaimsController {
   @ApiNotFoundResponse({
     description: 'The specified claim was not found.',
   })
-  archive(@Param('id') id: string) {
-    return this.claimsService.archive(id);
+  async archive(@Param('id') id: string) {
+    const claim = await this.claimsService.archive(id);
+    return ApiResponseDto.ok(claim, 'Claim archived successfully');
   }
 
   @Get(':id/receipt')
@@ -218,8 +236,9 @@ export class ClaimsController {
   @ApiNotFoundResponse({
     description: 'The specified claim was not found.',
   })
-  getReceipt(@Param('id') id: string): Promise<ClaimReceiptDto> {
-    return this.claimsService.getReceipt(id);
+  async getReceipt(@Param('id') id: string): Promise<ApiResponseDto<ClaimReceiptDto>> {
+    const receipt = await this.claimsService.getReceipt(id);
+    return ApiResponseDto.ok(receipt, 'Claim receipt generated successfully');
   }
 
   @Post(':id/receipt/share')
@@ -238,11 +257,12 @@ export class ClaimsController {
   @ApiNotFoundResponse({
     description: 'The specified claim was not found.',
   })
-  shareReceipt(
+  async shareReceipt(
     @Param('id') id: string,
     @Body() shareDto: SendReceiptShareDto,
-  ): Promise<ClaimShareResponseDto> {
-    return this.claimsService.shareReceipt(id, shareDto);
+  ): Promise<ApiResponseDto<ClaimShareResponseDto>> {
+    const res = await this.claimsService.shareReceipt(id, shareDto);
+    return ApiResponseDto.ok(res, 'Claim receipt share initiated successfully');
   }
 
   @Post(':id/notes')
@@ -258,13 +278,14 @@ export class ClaimsController {
   @ApiForbiddenResponse({
     description: 'Access denied - staff role required.',
   })
-  addNote(
+  async addNote(
     @Param('id') id: string,
     @Body() dto: CreateInternalNoteDto,
     @Request() req: ExpressRequest,
   ) {
     const authorId = req.user?.apiKeyId || req.user?.authType || 'system';
-    return this.internalNotesService.createNote('claim', id, authorId, dto);
+    const note = await this.internalNotesService.createNote('claim', id, authorId, dto);
+    return ApiResponseDto.ok(note, 'Internal note added successfully');
   }
 
   @Get(':id/notes')
@@ -280,8 +301,9 @@ export class ClaimsController {
   @ApiForbiddenResponse({
     description: 'Access denied - staff role required.',
   })
-  getNotes(@Param('id') id: string) {
-    return this.internalNotesService.findNotesByEntity('claim', id);
+  async getNotes(@Param('id') id: string) {
+    const notes = await this.internalNotesService.findNotesByEntity('claim', id);
+    return ApiResponseDto.ok(notes, 'Internal notes retrieved successfully');
   }
 
   // ---------------------------------------------------------------------------
@@ -289,6 +311,7 @@ export class ClaimsController {
   // ---------------------------------------------------------------------------
 
   @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
   @Roles(AppRole.operator, AppRole.admin)
   @ApiOperation({
     summary: 'Cancel a claim',
@@ -305,8 +328,9 @@ export class ClaimsController {
     description: 'Access denied - operator role required.',
   })
   @ApiNotFoundResponse({ description: 'Claim not found.' })
-  cancel(@Param('id') id: string, @Body() dto: CancelClaimDto) {
-    return this.cancelAndReissueService.cancel(id, dto);
+  async cancel(@Param('id') id: string, @Body() dto: CancelClaimDto) {
+    const result = await this.cancelAndReissueService.cancel(id, dto);
+    return ApiResponseDto.ok(result, 'Claim cancelled successfully');
   }
 
   @Post(':id/reissue')
@@ -342,8 +366,9 @@ export class ClaimsController {
     description: 'Access denied - operator role required.',
   })
   @ApiNotFoundResponse({ description: 'Original claim not found.' })
-  reissue(@Param('id') id: string, @Body() dto: ReissueClaimDto) {
-    return this.cancelAndReissueService.reissue(id, dto);
+  async reissue(@Param('id') id: string, @Body() dto: ReissueClaimDto) {
+    const result = await this.cancelAndReissueService.reissue(id, dto);
+    return ApiResponseDto.ok(result, 'Claim reissued successfully');
   }
 
   @Get(':id/reissue-history')
@@ -363,8 +388,9 @@ export class ClaimsController {
     description: 'Access denied - operator role required.',
   })
   @ApiNotFoundResponse({ description: 'Claim not found.' })
-  getReissueHistory(@Param('id') id: string) {
-    return this.cancelAndReissueService.getReissueHistory(id);
+  async getReissueHistory(@Param('id') id: string) {
+    const result = await this.cancelAndReissueService.getReissueHistory(id);
+    return ApiResponseDto.ok(result, 'Reissue history retrieved successfully');
   }
 
   @Get('export')

@@ -10,6 +10,7 @@ import { Deprecated } from './common/decorators/deprecated.decorator';
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
+  @Public()
   @Get()
   @Version(API_VERSIONS.V1)
   @ApiOperation({

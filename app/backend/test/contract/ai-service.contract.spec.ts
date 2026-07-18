@@ -19,7 +19,6 @@ import {
   getResponseSchema,
   validateAgainstSchema,
   OpenApiDocument,
-  SchemaObject,
 } from '../../scripts/openapi-validate';
 
 // ─── 1. Compile-time type mirrors ────────────────────────────────────────────

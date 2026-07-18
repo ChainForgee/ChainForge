@@ -74,6 +74,9 @@ pub struct Config {
     pub min_amount: i128,
     pub max_expires_in: u64,
     pub allowed_tokens: Vec<Address>,
+    /// Maximum number of packages allowed in a single batch_create_packages call.
+    /// 0 means unlimited.
+    pub max_batch_size: u32,
 }
 
 #[contracttype]
@@ -108,6 +111,9 @@ pub enum Error {
     TokenTransferFailed = 18,
     // Merkle allowlist root has expired (merkle_root_expires_at <= now)
     AllowlistExpired = 19,
+    /// Batch request exceeds the configured per-call ceiling.
+    /// Carries (requested, max).
+    BatchTooLarge = 20,
 }
 
 // --- Contract Events (indexer-friendly; stable topics & payloads) ---
@@ -235,6 +241,7 @@ impl AidEscrow {
             min_amount: 1,
             max_expires_in: 0,
             allowed_tokens: Vec::new(&env),
+            max_batch_size: 0,
         };
         env.storage().instance().set(&KEY_CONFIG, &config);
         Ok(())
@@ -640,6 +647,11 @@ impl AidEscrow {
         // Validate array lengths match
         if recipients.len() != amounts.len() || recipients.len() != metadatas.len() {
             return Err(Error::MismatchedArrays);
+        }
+
+        // Guard against oversized batches
+        if config.max_batch_size > 0 && recipients.len() > config.max_batch_size {
+            return Err(Error::BatchTooLarge);
         }
 
         if !config.allowed_tokens.is_empty() && !config.allowed_tokens.contains(token.clone()) {

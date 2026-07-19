@@ -47,6 +47,7 @@
  *   SMOKE_OP_TIMEOUT_MS          - Per-op timeout (default: 120000)
  */
 const { rpc: SorobanRpc, Contract, nativeToScVal, scValToNative, TransactionBuilder, Keypair, BASE_FEE } = require('@stellar/stellar-sdk');
+const { execSync } = require('child_process');
 
 // ── Configuration ──────────────────────────────────────────────────────────
 const RPC_URL = process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
@@ -74,6 +75,22 @@ function correlationId() {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function checkHttp2() {
+  console.log('\nChecking HTTP/2 support via curl...');
+  try {
+    const out = execSync('curl -sv --http2 http://localhost:3000/health', { stdio: 'pipe' }).toString();
+    if (out.includes('HTTP/2')) {
+      console.log('✓ HTTP/2 is active');
+    } else {
+      console.error('✘ HTTP/2 not detected');
+      exitCode = 9;
+    }
+  } catch (e) {
+    console.error('✘ curl failed:', e.message);
+    exitCode = 9;
+  }
 }
 
 async function withRetry(fn, desc, cid) {
@@ -413,5 +430,6 @@ run().catch((err) => {
   console.error('Unhandled error:', err);
   exitCode = 1;
 }).finally(() => {
+  checkHttp2();
   process.exit(exitCode);
 });

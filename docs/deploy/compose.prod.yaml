@@ -1,0 +1,33 @@
+version: "3.8"
+services:
+  backend:
+    build: ./app/backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./docs/deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - backend
+    environment:
+      ACME_AGREE: "true"
+
+volumes:
+  caddy_data:
+  caddy_config:

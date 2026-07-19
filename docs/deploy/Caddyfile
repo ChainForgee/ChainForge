@@ -1,0 +1,11 @@
+backend.example.com {
+    reverse_proxy backend:3000 {
+        transport http {
+            keepalive 32
+        }
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+    encode gzip zstd br
+    tls internal
+}

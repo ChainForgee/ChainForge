@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ClaimReceipt, ClaimReceiptData } from '@/components/ClaimReceipt';
 import { AlertCircle, Loader2 } from 'lucide-react';
+import { LiveRegion } from '@/components/LiveRegion';
+import { getStatusTransitionMessage } from '@/lib/status-messages';
 
 export default function ClaimReceiptPage() {
   const router = useRouter();
@@ -13,6 +15,16 @@ export default function ClaimReceiptPage() {
   const [claim, setClaim] = useState<ClaimReceiptData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  const previousClaimRef = React.useRef<ClaimReceiptData | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+
+  useEffect(() => {
+    if (previousClaimRef.current && claim && previousClaimRef.current.status !== claim.status) {
+      setAnnouncement(getStatusTransitionMessage('Claim', previousClaimRef.current.status, claim.status));
+    }
+    previousClaimRef.current = claim;
+  }, [claim]);
 
   useEffect(() => {
     if (!claimId) {
@@ -78,6 +90,7 @@ export default function ClaimReceiptPage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 py-8 px-4">
+      <LiveRegion message={announcement} />
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="mb-8">

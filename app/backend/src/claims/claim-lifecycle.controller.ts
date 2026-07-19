@@ -28,6 +28,7 @@ import { AppRole } from 'src/auth/app-role.enum';
 import { InternalNotesService } from 'src/common/services/internal-notes.service';
 import { CreateInternalNoteDto } from 'src/common/dto/create-internal-note.dto';
 import { InternalNoteResponseDto } from 'src/common/dto/internal-note-response.dto';
+import { HttpCacheTtl } from 'src/common/decorators/http-cache.decorator';
 
 @ApiTags('Onchain Proxy')
 @ApiBearerAuth('JWT-auth')
@@ -59,6 +60,7 @@ export class ClaimLifecycleController {
     return this.claimsService.create(createClaimDto);
   }
 
+  @HttpCacheTtl(30) // Response cached for 30 seconds
   @Get()
   @ApiOperation({
     operationId: 'ClaimsController_findAll_v1',

@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { fetchWithQueue } from './queue';
 
 const API_URL = config.apiUrl;
 
@@ -13,7 +14,7 @@ export interface HealthStatus {
 
 export const fetchHealthStatus = async (): Promise<HealthStatus> => {
   try {
-    const response = await fetch(`${API_URL}/health`);
+    const response = await fetchWithQueue(`${API_URL}/health`);
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -37,7 +38,7 @@ export interface AidPackage {
 
 export const getAidPackages = async (): Promise<AidPackage[]> => {
   try {
-    const response = await fetch(`${API_URL}/aid`);
+    const response = await fetchWithQueue(`${API_URL}/aid`);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }

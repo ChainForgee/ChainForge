@@ -8,6 +8,7 @@ import {
   HTTP_CACHE_METADATA,
   HTTP_CACHE_SKIP,
 } from '../../decorators/http-cache.decorator';
+import { HTTP_STREAMING_CACHE } from '../../streaming';
 
 interface FakeResponse {
   headers: Record<string, string>;
@@ -45,6 +46,8 @@ const decorated = (key: string, value: unknown) => {
   Reflect.defineMetadata(key, value, fn);
   return fn;
 };
+
+const nextTick = () => new Promise<void>(resolve => setImmediate(resolve));
 
 const createContext = ({
   method = 'GET',
@@ -138,7 +141,7 @@ describe('HttpCacheInterceptor', () => {
       await firstValueFrom(
         interceptor.intercept(context, { handle: () => of({}) }),
       );
-      expect(response.getHeader('X-Http-Cache')).toBeUndefined();
+      expect(response.getHeader('X-Edge-Cache-Status')).toBeUndefined();
     });
 
     it('still applies no-store on a path that is otherwise always-skipped', async () => {
@@ -203,9 +206,7 @@ describe('HttpCacheInterceptor', () => {
       expect(response.getHeader('Cache-Control')).toBe(
         'private, must-revalidate',
       );
-      expect(response.getHeader('Vary')).toBe(
-        'Authorization, Accept-Encoding',
-      );
+      expect(response.getHeader('Vary')).toBe('Authorization, Accept-Encoding');
       expect(response.getHeader('ETag')).toMatch(/^"[a-f0-9]{64}"$/);
     });
 
@@ -242,11 +243,9 @@ describe('HttpCacheInterceptor', () => {
       expect(response.getHeader('Cache-Control')).toBe(
         'private, must-revalidate',
       );
-      expect(response.getHeader('Vary')).toBe(
-        'Authorization, Accept-Encoding',
-      );
+      expect(response.getHeader('Vary')).toBe('Authorization, Accept-Encoding');
       expect(response.getHeader('ETag')).toMatch(/^"[a-f0-9]{64}"$/);
-      expect(response.getHeader('X-Http-Cache')).toBe('miss');
+      expect(response.getHeader('X-Edge-Cache-Status')).toBe('miss');
     });
 
     it('emits deterministic ETags across key reorderings', async () => {
@@ -355,7 +354,10 @@ describe('HttpCacheInterceptor', () => {
           }),
         );
         expect(result).toBeUndefined();
-        return { status: next.response.statusCode, etag: next.response.getHeader('ETag') };
+        return {
+          status: next.response.statusCode,
+          etag: next.response.getHeader('ETag'),
+        };
       };
 
       it('returns 304 on exact strong ETag match', async () => {
@@ -484,6 +486,102 @@ describe('HttpCacheInterceptor', () => {
           'private, must-revalidate',
         );
       }
+    });
+
+    it('defers ETag hashing for @UseStreamingCache responses', async () => {
+      configGet.mockReturnValue(undefined);
+      const interceptor = buildInterceptor();
+      const handler = decorated(HTTP_STREAMING_CACHE, true);
+      const payload = {
+        rows: Array.from({ length: 4_000 }, (_, id) => ({
+          id,
+          value: `row-${id}`,
+        })),
+      };
+      const { context, response } = createContext({ handler });
+
+      const result = await firstValueFrom(
+        interceptor.intercept(context, { handle: () => of(payload) }),
+      );
+
+      expect(result).toBe(payload);
+      expect(response.getHeader('ETag')).toBe('W/"pending"');
+      expect(response.getHeader('Link')).toBe(
+        '</etag>; rel=etag; status=pending',
+      );
+      expect(response.getHeader('X-Http-Cache')).toBe('pending');
+
+      await nextTick();
+
+      expect(response.getHeader('ETag')).toMatch(/^"[a-f0-9]{64}"$/);
+      expect(response.getHeader('Link')).toMatch(
+        /^<\/etag>; rel=etag; etag="[a-f0-9]{64}"$/,
+      );
+      expect(response.getHeader('X-Http-Cache')).toBe('miss');
+    });
+
+    it('computes identical deferred ETags for identical streaming-cache bodies', async () => {
+      configGet.mockReturnValue(undefined);
+      const interceptor = buildInterceptor();
+      const handler = decorated(HTTP_STREAMING_CACHE, true);
+
+      const firstCtx = createContext({ handler });
+      await firstValueFrom(
+        interceptor.intercept(firstCtx.context, {
+          handle: () => of({ z: 1, a: 2, m: { y: 1, x: 2 } }),
+        }),
+      );
+
+      const secondCtx = createContext({ handler, path: '/api/v1/y' });
+      await firstValueFrom(
+        interceptor.intercept(secondCtx.context, {
+          handle: () => of({ a: 2, m: { x: 2, y: 1 }, z: 1 }),
+        }),
+      );
+
+      await nextTick();
+
+      expect(firstCtx.response.getHeader('ETag')).toBeTruthy();
+      expect(firstCtx.response.getHeader('ETag')).toBe(
+        secondCtx.response.getHeader('ETag'),
+      );
+    });
+
+    it('completes a 200 KB streaming-cache JSON response under the latency budget', async () => {
+      configGet.mockReturnValue(undefined);
+      const interceptor = buildInterceptor();
+      const handler = decorated(HTTP_STREAMING_CACHE, true);
+      const payload = {
+        rows: Array.from({ length: 2_500 }, (_, id) => ({
+          id,
+          label: `recipient-${id}`,
+          status: 'pending',
+          notes: 'x'.repeat(48),
+        })),
+      };
+      expect(Buffer.byteLength(JSON.stringify(payload))).toBeGreaterThan(
+        200 * 1024,
+      );
+
+      const timings: number[] = [];
+      for (let i = 0; i < 100; i += 1) {
+        const { context } = createContext({
+          handler,
+          path: `/api/v1/large-${i}`,
+        });
+        const started = process.hrtime.bigint();
+        await firstValueFrom(
+          interceptor.intercept(context, { handle: () => of(payload) }),
+        );
+        const elapsedMs = Number(process.hrtime.bigint() - started) / 1_000_000;
+        timings.push(elapsedMs);
+      }
+
+      timings.sort((a, b) => a - b);
+      const p99 = timings[98];
+      expect(p99).toBeLessThan(8);
+
+      await nextTick();
     });
   });
 });

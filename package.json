@@ -6,7 +6,7 @@
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test"
-  },
+    },
   "pnpm": {
     "overrides": {
       "jest": "^30.4.2",

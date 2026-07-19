@@ -9,10 +9,10 @@ const destSchemaPath = path.join(__dirname, 'prisma', 'schema.generated.prisma')
 if (fs.existsSync(sourceSchemaPath)) {
   let content = fs.readFileSync(sourceSchemaPath, 'utf8');
   
-  // Replace provider env mapping
+  // Replace provider in datasource block
   content = content.replace(
-    /provider\s*=\s*env\("DATABASE_PROVIDER"\)/g,
-    `provider = "${provider}"`
+    /(datasource db\s*\{[^}]*provider\s*=\s*")[^"]*(")/g,
+    `$1${provider}$2`
   );
   
   // Remove shadowDatabaseUrl if using SQLite

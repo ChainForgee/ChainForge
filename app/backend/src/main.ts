@@ -18,7 +18,7 @@ import {
 } from './common/security/security.module';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 
-async function bootstrap() {
+export async function bootstrap() {
   // Load environment variables
   loadEnv();
 
@@ -34,6 +34,14 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   const configService = app.get(ConfigService);
+// Validate CORS_ORIGINS in production
+const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+if (nodeEnv === 'production') {
+  const corsOrigins = configService.get<string>('CORS_ORIGINS');
+  if (!corsOrigins) {
+    throw new Error('CORS_ORIGINS must be set in production');
+  }
+}
 
   // Security middleware (order matters)
   app.use(createHelmetMiddleware(configService));

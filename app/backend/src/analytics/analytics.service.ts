@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { PrismaReadReplicaService } from '../prisma/prisma-read-replica.service';
 import { ClaimStatus } from '@prisma/client';
 import {
   GlobalStatsDto,
@@ -97,6 +98,7 @@ export class AnalyticsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly prismaRead: PrismaReadReplicaService,
     private readonly redis: RedisService,
     private readonly privacyService: PrivacyService,
     private readonly metrics: MetricsService,
@@ -214,9 +216,7 @@ export class AnalyticsService {
     const { from, to, region, token } = query;
     const { startDate, endDate } = this.resolveDateRange(from, to);
 
-    // Fetch all disbursed claims within the time window, including their
-    // parent campaign so we can read metadata.
-    const claims = await this.prisma.claim.findMany({
+    const claims = await this.prismaRead.invoke('claim.findMany', {
       where: {
         status: ClaimStatus.disbursed,
         createdAt: { gte: startDate, lte: endDate },
@@ -237,7 +237,7 @@ export class AnalyticsService {
     });
 
     // Count active campaigns (optionally filtered by region / token).
-    const activeCampaigns = await this.prisma.campaign.count({
+    const activeCampaigns = await this.prismaRead.invoke('campaign.count', {
       where: {
         status: 'active',
         ...(region || token ? this.buildMetadataFilter(region, token) : {}),

@@ -34,7 +34,7 @@
   ["src/common/guards/webhook-hmac.guard.ts",-20,-20,-1,-20],
   ["src/common/hmac/hmac.service.ts",-8,-3,-3,-8],
   ["src/common/interceptors/deprecation.interceptor.ts",-12,-12,100,-12],
-  ["src/common/interceptors/http-cache.interceptor.ts",-6,-23,100,-7],
+  ["src/common/interceptors/http-cache.interceptor.ts",-22,-36,-2,-24],
   ["src/common/interceptors/logging.interceptor.ts",-16,-8,-4,-18],
   ["src/common/interceptors/request-id.interceptor.ts",-11,-2,-2,-13],
   ["src/common/security/csp-report.controller.ts",-2,-1,-1,-2],

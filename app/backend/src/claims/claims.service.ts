@@ -25,6 +25,7 @@ import { AuditService } from '../audit/audit.service';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { BudgetService } from '../common/budget/budget.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PaginationParams } from '../common/decorators/pagination.decorator';
 
 type ExpirationCleanupCapableAdapter = OnchainAdapter & {
   revokeAidPackage?: (params: {
@@ -116,20 +117,37 @@ export class ClaimsService {
     return claim;
   }
 
-  async findAll(page = 1, limit = 50) {
-    const take = Math.min(200, Math.max(1, limit));
-    const skip = (Math.max(1, page) - 1) * take;
-    const claims = await this.prisma.claim.findMany({
+  async findAll(pagination: PaginationParams) {
+    const { limit, cursor } = pagination;
+    const take = limit;
+
+    const query: Prisma.ClaimFindManyArgs = {
       where: { deletedAt: null },
       include: { campaign: true },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take,
-    });
-    return claims.map(claim => ({
+      orderBy: { id: 'asc' },
+      take: take + 1,
+    };
+
+    if (cursor) {
+      query.cursor = { id: cursor };
+      query.skip = 1;
+    }
+
+    const claims = await this.prisma.claim.findMany(query);
+
+    const hasMore = claims.length > take;
+    const items = hasMore ? claims.slice(0, take) : claims;
+    const nextCursor = hasMore ? items[items.length - 1].id : null;
+
+    const decryptedData = items.map(claim => ({
       ...claim,
       recipientRef: this.encryptionService.decrypt(claim.recipientRef),
     }));
+
+    return {
+      data: decryptedData,
+      nextCursor,
+    };
   }
 
   async findOne(id: string) {

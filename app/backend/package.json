@@ -114,7 +114,10 @@
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
     "moduleNameMapper": {
-      "^src/(.*)$": "<rootDir>/src/$1"
+      "^src/(.*)$": "<rootDir>/src/$1",
+      "^ioredis$": "<rootDir>/test/mocks/ioredis.mock.ts",
+      "^@nestjs/bullmq$": "<rootDir>/test/mocks/nestjs-bullmq.mock.ts",
+      "^@nestjs/bull$": "<rootDir>/test/mocks/nestjs-bull.mock.ts"
     },
     "modulePaths": ["<rootDir>"]
   },

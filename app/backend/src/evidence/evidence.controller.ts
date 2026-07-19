@@ -12,7 +12,14 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Request as ExpressRequest } from 'express';
+import {
+  Pagination,
+  PaginationDefaults,
+  PaginationParams,
+  ApiPaginatedResponse,
+} from 'src/common/decorators/pagination.decorator';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
+import { ApiResponseDto } from '../common/dto/api-response.dto';
 import {
   ApiTags,
   ApiOperation,
@@ -78,7 +85,8 @@ export class EvidenceController {
     validateUploadedFile(file);
 
     const ownerId = req.user?.apiKeyId || req.user?.authType || 'system';
-    return this.evidenceService.queueEvidence(file, ownerId);
+    const orgId = req.headers['x-org-id'] as string | undefined;
+    return this.evidenceService.queueEvidence(file, ownerId, orgId);
   }
 
   /**
@@ -108,15 +116,20 @@ export class EvidenceController {
 
   @Get('queue')
   @Roles(AppRole.operator, AppRole.admin)
+  @PaginationDefaults({ default: 25, max: 100 })
   @ApiOperation({
     summary: 'List evidence queue',
     description:
       'Retrieves all evidence items in the queue for the current user.',
   })
-  @ApiOkResponse({ description: 'Queue retrieved successfully.' })
-  getQueue(@Request() req: ExpressRequest) {
+  @ApiPaginatedResponse(Object)
+  async getQueue(
+    @Request() req: ExpressRequest,
+    @Pagination() pagination: PaginationParams,
+  ) {
     const ownerId = req.user?.apiKeyId || req.user?.authType || 'system';
-    return this.evidenceService.findQueue(ownerId);
+    const result = await this.evidenceService.findQueue(ownerId, pagination);
+    return ApiResponseDto.ok(result, 'Queue retrieved successfully');
   }
 
   @Post('queue/:id/retry')

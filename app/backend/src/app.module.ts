@@ -43,6 +43,7 @@ import { RedisModule } from '@liaoliaots/nestjs-redis';
 import { AdaptiveRateLimitGuard } from './common/guards/adaptive-rate-limit.guard';
 import { DeprecationInterceptor } from './common/interceptors/deprecation.interceptor';
 import { HttpCacheInterceptor } from './common/interceptors/http-cache.interceptor';
+import { PaginationInterceptor } from './common/interceptors/pagination.interceptor';
 import { SandboxModule } from './sandbox/sandbox.module';
 
 @Module({
@@ -148,6 +149,10 @@ import { SandboxModule } from './sandbox/sandbox.module';
     {
       provide: APP_INTERCEPTOR,
       useClass: DeprecationInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: PaginationInterceptor,
     },
     {
       provide: APP_INTERCEPTOR,

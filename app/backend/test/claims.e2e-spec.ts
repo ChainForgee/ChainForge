@@ -1,9 +1,11 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import request, { Response as SupertestResponse } from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { BudgetService } from 'src/common/budget/budget.service';
+import { ApiKeyGuard } from 'src/common/guards/api-key.guard';
+import { EncryptionService } from 'src/common/encryption/encryption.service';
 import { App } from 'supertest/types';
 
 type ApiResponse<T> = {
@@ -32,16 +34,33 @@ function bodyAs<T>(res: SupertestResponse): ApiResponse<T> {
 describe('Claims (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let encryptionService: EncryptionService;
 
   const base = '/api/v1/claims';
 
   beforeAll(async () => {
+    process.env.API_KEY = 'dev-admin-key-000';
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
       providers: [BudgetService, PrismaService],
     }).compile();
 
     app = moduleRef.createNestApplication();
+
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+      prefix: 'v',
+    });
+
+    app.use((req: any, res: any, next: any) => {
+      if (!req.headers['x-api-key']) {
+        req.headers['x-api-key'] = 'dev-admin-key-000';
+      }
+      next();
+    });
 
     app.useGlobalPipes(
       new ValidationPipe({
@@ -53,9 +72,11 @@ describe('Claims (e2e)', () => {
 
     await app.init();
     prisma = app.get(PrismaService);
+    encryptionService = app.get(EncryptionService);
   });
 
   beforeEach(async () => {
+    await prisma.balanceLedger.deleteMany();
     await prisma.claim.deleteMany();
     await prisma.campaign.deleteMany();
   });
@@ -76,6 +97,7 @@ describe('Claims (e2e)', () => {
         campaignId: campaign.id,
         amount: 100.5,
         recipientRef: 'recipient-123',
+        tokenAddress: 'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN',
         evidenceRef: 'evidence-456',
       })
       .expect(201);
@@ -97,6 +119,7 @@ describe('Claims (e2e)', () => {
         campaignId: 'invalid-id',
         amount: 100.5,
         recipientRef: 'recipient-123',
+        tokenAddress: 'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN',
       })
       .expect(404);
   });
@@ -110,16 +133,16 @@ describe('Claims (e2e)', () => {
       data: {
         campaignId: campaign.id,
         amount: 50,
-        recipientRef: 'recipient-1',
+        recipientRef: encryptionService.encrypt('recipient-1'),
       },
     });
 
     const res = await request(app.getHttpServer()).get(base).expect(200);
 
-    const body = bodyAs<ClaimResponseDto[]>(res);
+    const body = bodyAs<{ data: ClaimResponseDto[]; nextCursor: string | null }>(res);
 
     expect(body.success).toBe(true);
-    expect(body.data).toHaveLength(1);
+    expect(body.data.data).toHaveLength(1);
   });
 
   it('GET /claims/:id returns claim details', async () => {
@@ -131,7 +154,7 @@ describe('Claims (e2e)', () => {
       data: {
         campaignId: campaign.id,
         amount: 50,
-        recipientRef: 'recipient-1',
+        recipientRef: encryptionService.encrypt('recipient-1'),
       },
     });
 
@@ -155,7 +178,7 @@ describe('Claims (e2e)', () => {
       data: {
         campaignId: campaign.id,
         amount: 50,
-        recipientRef: 'recipient-1',
+        recipientRef: encryptionService.encrypt('recipient-1'),
       },
     });
 
@@ -178,7 +201,7 @@ describe('Claims (e2e)', () => {
       data: {
         campaignId: campaign.id,
         amount: 50,
-        recipientRef: 'recipient-1',
+        recipientRef: encryptionService.encrypt('recipient-1'),
         status: 'verified',
       },
     });
@@ -202,7 +225,7 @@ describe('Claims (e2e)', () => {
       data: {
         campaignId: campaign.id,
         amount: 50,
-        recipientRef: 'recipient-1',
+        recipientRef: encryptionService.encrypt('recipient-1'),
         status: 'approved',
       },
     });
@@ -226,7 +249,7 @@ describe('Claims (e2e)', () => {
       data: {
         campaignId: campaign.id,
         amount: 50,
-        recipientRef: 'recipient-1',
+        recipientRef: encryptionService.encrypt('recipient-1'),
         status: 'disbursed',
       },
     });
@@ -250,7 +273,7 @@ describe('Claims (e2e)', () => {
       data: {
         campaignId: campaign.id,
         amount: 50,
-        recipientRef: 'recipient-1',
+        recipientRef: encryptionService.encrypt('recipient-1'),
         status: 'verified', // Already verified
       },
     });
@@ -259,6 +282,7 @@ describe('Claims (e2e)', () => {
       .post(`${base}/${claim.id}/verify`)
       .expect(400);
   });
+
   it('POST /claims rejects claim if over campaign budget', async () => {
     // Create a campaign with a small budget
     const campaign = await prisma.campaign.create({
@@ -266,14 +290,27 @@ describe('Claims (e2e)', () => {
     });
 
     // First claim within budget
-    await request(app.getHttpServer())
+    const claimRes = await request(app.getHttpServer())
       .post(base)
       .send({
         campaignId: campaign.id,
         amount: 60,
         recipientRef: 'recipient-1',
+        tokenAddress: 'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN',
       })
       .expect(201);
+
+    const claimBody = bodyAs<ClaimResponseDto>(claimRes);
+
+    // Create a mock balance ledger entry to simulate locking the budget for this claim
+    await prisma.balanceLedger.create({
+      data: {
+        campaignId: campaign.id,
+        claimId: claimBody.data.id,
+        eventType: 'lock',
+        amount: 60,
+      },
+    });
 
     // Second claim that would exceed the cap
     const res = await request(app.getHttpServer())
@@ -282,6 +319,7 @@ describe('Claims (e2e)', () => {
         campaignId: campaign.id,
         amount: 50, // 60 + 50 = 110 > 100
         recipientRef: 'recipient-2',
+        tokenAddress: 'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN',
       })
       .expect(400);
 

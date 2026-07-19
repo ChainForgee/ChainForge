@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
 import { ExportCampaignsQueryDto } from './dto/export-campaigns.dto';
+import { PaginationParams } from '../common/decorators/pagination.decorator';
 
 export interface CampaignExportRow {
   id: string;
@@ -53,21 +54,41 @@ export class CampaignsService {
     });
   }
 
-  async findAll(includeArchived = false, ngoId?: string | null, page = 1, limit = 50) {
+  async findAll(
+    includeArchived = false,
+    ngoId?: string | null,
+    pagination: PaginationParams = { limit: 25 },
+  ) {
+    const { limit, cursor } = pagination;
+    const take = limit;
+
     const where: Prisma.CampaignWhereInput = {
       deletedAt: null,
       ...(includeArchived ? {} : { archivedAt: null }),
       ...(ngoId ? { ngoId } : {}),
     };
-    const take = Math.min(200, Math.max(1, limit));
-    const skip = (Math.max(1, page) - 1) * take;
 
-    return this.prisma.campaign.findMany({
+    const query: Prisma.CampaignFindManyArgs = {
       where,
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take,
-    });
+      orderBy: { id: 'asc' },
+      take: take + 1,
+    };
+
+    if (cursor) {
+      query.cursor = { id: cursor };
+      query.skip = 1;
+    }
+
+    const campaigns = await this.prisma.campaign.findMany(query);
+
+    const hasMore = campaigns.length > take;
+    const items = hasMore ? campaigns.slice(0, take) : campaigns;
+    const nextCursor = hasMore ? items[items.length - 1].id : null;
+
+    return {
+      data: items,
+      nextCursor,
+    };
   }
 
   async findOne(id: string) {

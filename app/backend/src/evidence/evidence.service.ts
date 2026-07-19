@@ -13,6 +13,7 @@ import { existsSync, mkdirSync } from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { EvidenceStatus } from '@prisma/client';
+import { PaginationParams } from '../common/decorators/pagination.decorator';
 
 @Injectable()
 export class EvidenceService {
@@ -204,11 +205,31 @@ export class EvidenceService {
     }
   }
 
-  async findQueue(ownerId: string) {
-    return this.prisma.evidenceQueueItem.findMany({
+  async findQueue(ownerId: string, pagination: PaginationParams = { limit: 25 }) {
+    const { limit, cursor } = pagination;
+    const take = limit;
+
+    const query: Prisma.EvidenceQueueItemFindManyArgs = {
       where: { ownerId },
-      orderBy: { createdAt: 'desc' },
-    });
+      orderBy: { id: 'asc' },
+      take: take + 1,
+    };
+
+    if (cursor) {
+      query.cursor = { id: cursor };
+      query.skip = 1;
+    }
+
+    const items = await this.prisma.evidenceQueueItem.findMany(query);
+
+    const hasMore = items.length > take;
+    const resultItems = hasMore ? items.slice(0, take) : items;
+    const nextCursor = hasMore ? resultItems[resultItems.length - 1].id : null;
+
+    return {
+      data: resultItems,
+      nextCursor,
+    };
   }
 
   async retry(id: string, ownerId: string) {

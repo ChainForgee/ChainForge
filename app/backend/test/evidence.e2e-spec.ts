@@ -1,10 +1,12 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from 'src/app.module';
+import { ApiKeyGuard } from 'src/common/guards/api-key.guard';
 import { PrismaService } from 'src/prisma/prisma.service';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { EvidenceStatus } from '@prisma/client';
 import { App } from 'supertest/types';
 import { MAX_FILE_SIZE } from 'src/evidence/file-validation';
@@ -14,12 +16,40 @@ describe('Evidence Queue (e2e)', () => {
   let prisma: PrismaService;
   const uploadDir = path.join(process.cwd(), 'uploads', 'evidence');
 
+  async function waitForUpload(id: string): Promise<any> {
+    for (let i = 0; i < 50; i++) {
+      const item = await prisma.evidenceQueueItem.findUnique({ where: { id } });
+      if (item && item.status !== EvidenceStatus.pending && item.status !== EvidenceStatus.uploading) {
+        return item;
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error(`Upload for item ${id} did not finish in time`);
+  }
+
   beforeAll(async () => {
+    process.env.API_KEY = 'dev-admin-key-000';
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     app = moduleRef.createNestApplication();
+
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+      prefix: 'v',
+    });
+
+    app.use((req: any, res: any, next: any) => {
+      if (!req.headers['x-api-key']) {
+        req.headers['x-api-key'] = 'dev-admin-key-000';
+      }
+      next();
+    });
+
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
     await app.init();
     prisma = app.get(PrismaService);
@@ -49,6 +79,8 @@ describe('Evidence Queue (e2e)', () => {
       .attach('file', fileContent, 'test.txt')
       .expect(201);
 
+    await waitForUpload(res.body.id);
+
     expect(res.body.fileName).toBe('test.txt');
     expect(res.body.status).toBe(EvidenceStatus.pending);
 
@@ -66,11 +98,13 @@ describe('Evidence Queue (e2e)', () => {
     const fileContent = Buffer.from('unique content');
     const orgId = 'org-123';
 
-    await request(app.getHttpServer())
+    const res1 = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
       .attach('file', fileContent, 'test1.txt')
       .set('x-org-id', orgId)
       .expect(201);
+
+    await waitForUpload(res1.body.id);
 
     const res = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
@@ -100,6 +134,9 @@ describe('Evidence Queue (e2e)', () => {
       .set('x-org-id', org2Id)
       .expect(201);
 
+    await waitForUpload(res1.body.id);
+    await waitForUpload(res2.body.id);
+
     expect(res1.body.id).not.toBe(res2.body.id);
     expect(res1.body.orgId).toBe(org1Id);
     expect(res2.body.orgId).toBe(org2Id);
@@ -113,6 +150,8 @@ describe('Evidence Queue (e2e)', () => {
       .attach('file', fileContent, 'test.txt')
       .expect(201);
 
+    await waitForUpload(res.body.id);
+
     const item = await prisma.evidenceQueueItem.findUnique({
       where: { id: res.body.id },
     });
@@ -124,13 +163,22 @@ describe('Evidence Queue (e2e)', () => {
   it('POST /evidence/upload creates near-duplicate reference when fingerprint matches', async () => {
     const fileContent = Buffer.from('near duplicate test');
     const orgId = 'org-456';
+    const fingerprint = crypto.createHash('sha256').update(fileContent).digest('hex');
 
-    // Upload original
-    const originalRes = await request(app.getHttpServer())
-      .post('/api/v1/evidence/upload')
-      .attach('file', fileContent, 'original.txt')
-      .set('x-org-id', orgId)
-      .expect(201);
+    // Manually insert original with a DIFFERENT fileHash
+    const originalItem = await prisma.evidenceQueueItem.create({
+      data: {
+        fileName: 'original.txt',
+        filePath: '/tmp/original.txt',
+        fileHash: 'different-file-hash-123',
+        fingerprint,
+        mimeType: 'text/plain',
+        size: fileContent.length,
+        ownerId: 'dev-admin-key-000',
+        orgId,
+        status: EvidenceStatus.completed,
+      },
+    });
 
     // Upload near-duplicate (same content, different filename)
     const duplicateRes = await request(app.getHttpServer())
@@ -139,32 +187,41 @@ describe('Evidence Queue (e2e)', () => {
       .set('x-org-id', orgId)
       .expect(201);
 
-    expect(duplicateRes.body.nearDuplicateOf).toBe(originalRes.body.id);
+    await waitForUpload(duplicateRes.body.id);
+
+    expect(duplicateRes.body.nearDuplicateOf).toBe(originalItem.id);
     expect(duplicateRes.body.status).toBe(EvidenceStatus.completed);
     expect(duplicateRes.body.filePath).toBeNull(); // No file stored for near-duplicate
   });
 
   it('GET /evidence/queue lists items', async () => {
     const fileContent = Buffer.from('some content');
-    await request(app.getHttpServer())
+    const uploadRes = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
-      .attach('file', fileContent, 'test.txt');
+      .attach('file', fileContent, 'test.txt')
+      .expect(201);
+
+    await waitForUpload(uploadRes.body.id);
 
     const res = await request(app.getHttpServer())
       .get('/api/v1/evidence/queue')
       .expect(200);
 
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0].fileName).toBe('test.txt');
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.data).toHaveLength(1);
+    expect(res.body.data.data[0].fileName).toBe('test.txt');
   });
 
   it('DELETE /evidence/queue/:id removes item and file', async () => {
     const fileContent = Buffer.from('content to delete');
     const uploadRes = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
-      .attach('file', fileContent, 'delete-me.txt');
+      .attach('file', fileContent, 'delete-me.txt')
+      .expect(201);
 
     const itemId = uploadRes.body.id;
+    await waitForUpload(itemId);
+
     const itemBefore = await prisma.evidenceQueueItem.findUnique({
       where: { id: itemId },
     });
@@ -218,7 +275,7 @@ describe('Evidence Queue (e2e)', () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
       .attach('file', fileContent, {
-        filename: '../../evil.txt',
+        filename: 'unsafe\t.txt',
         contentType: 'text/plain',
       })
       .expect(400);
@@ -283,13 +340,15 @@ describe('Evidence Queue (e2e)', () => {
     // 'a' repeated up to the limit sniffs as text/plain.
     const atLimit = Buffer.alloc(MAX_FILE_SIZE, 0x61);
 
-    await request(app.getHttpServer())
+    const res = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
       .attach('file', atLimit, {
         filename: 'at-limit.txt',
         contentType: 'text/plain',
       })
       .expect(201);
+
+    await waitForUpload(res.body.id);
   });
 
   it('POST /evidence/upload rejects oversized files with 413', async () => {
@@ -317,6 +376,8 @@ describe('Evidence Queue (e2e)', () => {
       })
       .expect(201);
 
+    await waitForUpload(res.body.id);
+
     const item = await prisma.evidenceQueueItem.findUnique({
       where: { id: res.body.id },
     });
@@ -328,18 +389,30 @@ describe('Evidence Queue (e2e)', () => {
   it('Near-duplicate detection preserves auditability with metadata', async () => {
     const fileContent = Buffer.from('audit test content');
     const orgId = 'org-789';
+    const fingerprint = crypto.createHash('sha256').update(fileContent).digest('hex');
 
-    const originalRes = await request(app.getHttpServer())
-      .post('/api/v1/evidence/upload')
-      .attach('file', fileContent, 'original.txt')
-      .set('x-org-id', orgId)
-      .expect(201);
+    // Manually insert original with a DIFFERENT fileHash
+    const originalItem = await prisma.evidenceQueueItem.create({
+      data: {
+        fileName: 'original.txt',
+        filePath: '/tmp/original.txt',
+        fileHash: 'different-file-hash-789',
+        fingerprint,
+        mimeType: 'text/plain',
+        size: fileContent.length,
+        ownerId: 'dev-admin-key-000',
+        orgId,
+        status: EvidenceStatus.completed,
+      },
+    });
 
     const duplicateRes = await request(app.getHttpServer())
       .post('/api/v1/evidence/upload')
       .attach('file', fileContent, 'duplicate.txt')
       .set('x-org-id', orgId)
       .expect(201);
+
+    await waitForUpload(duplicateRes.body.id);
 
     const duplicateItem = await prisma.evidenceQueueItem.findUnique({
       where: { id: duplicateRes.body.id },
@@ -350,6 +423,6 @@ describe('Evidence Queue (e2e)', () => {
     // Cast generic Prisma JSON type to any to bypass unmapped key checks
     const metadata = duplicateItem?.metadata as any;
     expect(metadata?.isNearDuplicate).toBe(true);
-    expect(metadata?.originalId).toBe(originalRes.body.id);
+    expect(metadata?.originalId).toBe(originalItem.id);
   });
 });

@@ -15,6 +15,12 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
+  Pagination,
+  PaginationDefaults,
+  PaginationParams,
+  ApiPaginatedResponse,
+} from 'src/common/decorators/pagination.decorator';
+import {
   ApiBody,
   ApiOperation,
   ApiOkResponse,
@@ -72,12 +78,13 @@ export class CampaignsController {
 
   @Throttle({ default: { ttl: 60000, limit: 10 } }) // Limit to 10 requests per minute for this endpoint
   @Get()
+  @PaginationDefaults({ default: 25, max: 100 })
   @ApiOperation({
     summary: 'List all campaigns',
     description:
       "Retrieves campaigns. NGO operators only see their own organization's campaigns.",
   })
-  @ApiOkResponse({ description: 'List of campaigns retrieved successfully.' })
+  @ApiPaginatedResponse(CreateCampaignDto)
   @ApiUnauthorizedResponse({
     description: 'Missing or invalid authentication credentials.',
   })
@@ -85,10 +92,15 @@ export class CampaignsController {
     @Query('includeArchived', new DefaultValuePipe(false), ParseBoolPipe)
     includeArchived: boolean,
     @Req() req: Request,
+    @Pagination() pagination: PaginationParams,
   ) {
     // Scope to ngoId for NGO role; admins/operators see all
     const ngoId = req.user?.role === AppRole.ngo ? req.user.ngoId : undefined;
-    const campaigns = await this.campaigns.findAll(includeArchived, ngoId);
+    const campaigns = await this.campaigns.findAll(
+      includeArchived,
+      ngoId,
+      pagination,
+    );
     return ApiResponseDto.ok(campaigns, 'Campaigns fetched successfully');
   }
 

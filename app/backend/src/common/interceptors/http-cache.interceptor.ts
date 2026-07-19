@@ -4,6 +4,7 @@ import {
   ExecutionContext,
   CallHandler,
   Logger,
+  StreamableFile,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
@@ -11,6 +12,7 @@ import { Observable } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { throwError } from 'rxjs';
 import { createHash } from 'node:crypto';
+import { Readable } from 'node:stream';
 import type { Request, Response } from 'express';
 import { canonicalStringify } from '../utils/json-canonicalize.util';
 import {
@@ -18,6 +20,7 @@ import {
   HTTP_CACHE_SKIP,
   HttpCacheOptions,
 } from '../decorators/http-cache.decorator';
+import { HTTP_STREAMING_CACHE } from '../streaming';
 
 /**
  * Maximum size (bytes) for which we compute an ETag. Larger payloads
@@ -44,6 +47,8 @@ const SKIP_PATH_PREFIXES: readonly string[] = [
  * Cache-Control / ETag surface as the original GET.
  */
 const SAFE_METHODS = new Set(['GET', 'HEAD']);
+const PENDING_ETAG = 'W/"pending"';
+const ETAG_LINK_TARGET = '</etag>; rel=etag';
 
 /**
  * HTTP methods whose responses must never be persisted by any cache
@@ -105,9 +110,10 @@ export class HttpCacheInterceptor implements NestInterceptor {
     private readonly reflector: Reflector,
     configService: ConfigService,
   ) {
-    this.enabled = (configService.get<string>('HTTP_CACHE_ENABLED') ?? 'true')
-      .toLowerCase()
-      !== 'false';
+    this.enabled =
+      (
+        configService.get<string>('HTTP_CACHE_ENABLED') ?? 'true'
+      ).toLowerCase() !== 'false';
 
     const ttlRaw = configService.get<string>('HTTP_CACHE_DEFAULT_TTL');
     const parsedTtl = ttlRaw !== undefined ? Number.parseInt(ttlRaw, 10) : NaN;
@@ -127,8 +133,7 @@ export class HttpCacheInterceptor implements NestInterceptor {
         : MAX_ETAG_PAYLOAD_BYTES;
 
     this.debugHeaders =
-      (configService.get<string>('NODE_ENV') ?? 'development') !==
-      'production';
+      (configService.get<string>('NODE_ENV') ?? 'development') !== 'production';
   }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -175,6 +180,11 @@ export class HttpCacheInterceptor implements NestInterceptor {
         context.getHandler(),
         context.getClass(),
       ]) ?? {};
+    const useStreamingCache =
+      this.reflector.getAllAndOverride<boolean>(HTTP_STREAMING_CACHE, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === true;
 
     response.setHeader('Cache-Control', this.buildCacheControl(options));
     response.setHeader('Vary', 'Authorization, Accept-Encoding');
@@ -188,7 +198,11 @@ export class HttpCacheInterceptor implements NestInterceptor {
         this.markNonCacheable(response);
         return throwError(() => err);
       }),
-      map((data) => this.applyGetHeaders(request, response, data)),
+      map(data =>
+        useStreamingCache
+          ? this.applyStreamingGetHeaders(request, response, data)
+          : this.applyGetHeaders(request, response, data),
+      ),
     );
   }
 
@@ -222,10 +236,7 @@ export class HttpCacheInterceptor implements NestInterceptor {
     // Don't bother hashing huge payloads; ETag is a "free" win only on
     // small responses that we expect to be re-served often.
     const serialized = canonicalStringify(data);
-    if (
-      serialized.length === 0 ||
-      serialized.length > this.maxPayloadBytes
-    ) {
+    if (serialized.length === 0 || serialized.length > this.maxPayloadBytes) {
       if (serialized.length > this.maxPayloadBytes) {
         this.logger.warn(
           `Skipping ETag hash for ${request.method} ${
@@ -262,6 +273,100 @@ export class HttpCacheInterceptor implements NestInterceptor {
 
     this.setDebugHeader(response, 'miss');
     return data;
+  }
+
+  private applyStreamingGetHeaders(
+    request: Request,
+    response: Response,
+    data: unknown,
+  ): unknown {
+    if (!this.isCacheableBody(data, response)) {
+      this.setDebugHeader(response, 'bypass');
+      return data;
+    }
+
+    response.setHeader('ETag', PENDING_ETAG);
+    response.setHeader('Link', `${ETAG_LINK_TARGET}; status=pending`);
+    response.setHeader('Trailer', 'ETag, Link');
+    this.setDebugHeader(response, 'pending');
+
+    this.deferEtagHash(request, response, data);
+    return this.streamJsonResponse(response, data);
+  }
+
+  private deferEtagHash(
+    request: Request,
+    response: Response,
+    data: unknown,
+  ): void {
+    setImmediate(() => {
+      try {
+        const serialized = canonicalStringify(data);
+        if (serialized.length === 0) {
+          this.setDebugHeader(response, 'bypass');
+          return;
+        }
+
+        const etagHash = createHash('sha256').update(serialized).digest('hex');
+        const etag = `"${etagHash}"`;
+        const link = `${ETAG_LINK_TARGET}; etag=${etag}`;
+
+        if (!response.headersSent) {
+          response.setHeader('ETag', etag);
+          response.setHeader('Link', link);
+        }
+        this.addTrailers(response, { ETag: etag, Link: link });
+
+        if (this.ifNoneMatchMatches(request, etag)) {
+          this.setDebugHeader(response, 'hit');
+        } else {
+          this.setDebugHeader(response, 'miss');
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Deferred ETag hash failed for ${request.method} ${
+            request.originalUrl ?? request.url
+          }: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        this.setDebugHeader(response, 'bypass');
+      }
+    });
+  }
+
+  private streamJsonResponse(response: Response, data: unknown): unknown {
+    if (!supportsStreamingResponse(response)) {
+      return data;
+    }
+
+    let payload: string;
+    try {
+      payload = JSON.stringify(data) ?? 'null';
+    } catch {
+      return data;
+    }
+
+    const chunkSize = 16 * 1024;
+    function* chunks(): Generator<string> {
+      for (let offset = 0; offset < payload.length; offset += chunkSize) {
+        yield payload.slice(offset, offset + chunkSize);
+      }
+    }
+
+    return new StreamableFile(Readable.from(chunks()), {
+      type: 'application/json; charset=utf-8',
+    });
+  }
+
+  private addTrailers(
+    response: Response,
+    trailers: Record<string, string>,
+  ): void {
+    const candidate = response as Response & {
+      addTrailers?: (headers: Record<string, string>) => void;
+    };
+    if (typeof candidate.addTrailers === 'function') {
+      candidate.addTrailers(trailers);
+    }
   }
 
   private markNonCacheable(response: Response): void {
@@ -310,12 +415,19 @@ export class HttpCacheInterceptor implements NestInterceptor {
 
     // Node Readables expose `.pipe`; Web streams expose `.pipeTo`.
     const candidate = data as { pipe?: unknown; pipeTo?: unknown };
-    if (typeof candidate.pipe === 'function' || typeof candidate.pipeTo === 'function') {
+    if (
+      typeof candidate.pipe === 'function' ||
+      typeof candidate.pipeTo === 'function'
+    ) {
       return false;
     }
 
     // Web Readables expose an async iterator (ReadableStream / Readable.fromWeb).
-    if (typeof (data as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function') {
+    if (
+      typeof (data as { [Symbol.asyncIterator]?: unknown })[
+        Symbol.asyncIterator
+      ] === 'function'
+    ) {
       return false;
     }
 
@@ -348,10 +460,7 @@ export class HttpCacheInterceptor implements NestInterceptor {
     return true;
   }
 
-  private ifNoneMatchMatches(
-    request: Request,
-    etag: string,
-  ): boolean {
+  private ifNoneMatchMatches(request: Request, etag: string): boolean {
     const raw = request.headers['if-none-match'];
     if (raw === undefined) return false;
     const values = normalizeIfNoneMatch(raw);
@@ -367,7 +476,7 @@ export class HttpCacheInterceptor implements NestInterceptor {
 
   private setDebugHeader(response: Response, value: string): void {
     if (this.debugHeaders) {
-      response.setHeader('X-Http-Cache', value);
+      response.setHeader('X-Edge-Cache-Status', value);
     }
   }
 }
@@ -396,4 +505,12 @@ function normalizeIfNoneMatch(raw: string | string[]): string[] {
  */
 function stripWeakPrefix(value: string): string {
   return value.startsWith('W/') ? value.slice(2) : value;
+}
+
+function supportsStreamingResponse(response: Response): boolean {
+  const candidate = response as Response & {
+    write?: unknown;
+  };
+
+  return typeof candidate.write === 'function';
 }

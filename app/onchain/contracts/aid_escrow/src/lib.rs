@@ -108,6 +108,7 @@ pub enum Error {
     TokenTransferFailed = 18,
     // Merkle allowlist root has expired (merkle_root_expires_at <= now)
     AllowlistExpired = 19,
+    ProofTooLarge = 20,
 }
 
 // --- Contract Events (indexer-friendly; stable topics & payloads) ---
@@ -807,6 +808,13 @@ impl AidEscrow {
         proof: Vec<String>,
     ) -> Result<(), Error> {
         Self::check_action_paused(&env, symbol_short!("claim"))?;
+
+        // --- ENFORCE MERKLE PROOF CAP ---
+        if proof.len() > 32 {
+            return Err(Error::ProofTooLarge);
+        }
+        // ---------------------------------
+
         let key = (symbol_short!("pkg"), id);
         let mut package: Package = env
             .storage()

@@ -41,23 +41,23 @@ export default async function Home({ params }: PageProps) {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
           <div className="p-6 rounded-lg border border-gray-200 dark:border-gray-800 text-left">
-            <h3 className="text-lg font-semibold mb-2 text-blue-900 dark:text-white">Direct Aid Claims</h3>
+            <h2 className="text-lg font-semibold mb-2 text-blue-900 dark:text-white">Direct Aid Claims</h2>
             <p className="text-gray-600 dark:text-gray-400 text-sm">
               Wallet-based, passwordless claiming—no accounts required.
             </p>
           </div>
           <div className="p-6 rounded-lg border border-gray-200 dark:border-gray-800 text-left">
-            <h3 className="text-lg font-semibold mb-2 text-blue-900 dark:text-white">
+            <h2 className="text-lg font-semibold mb-2 text-blue-900 dark:text-white">
               AI Need Verification
-            </h3>
+            </h2>
             <p className="text-gray-600 dark:text-gray-400 text-sm">
               Client-side analysis for privacy-preserving eligibility.
             </p>
           </div>
           <div className="p-6 rounded-lg border border-gray-200 dark:border-gray-800 text-left">
-            <h3 className="text-lg font-semibold mb-2 text-blue-900 dark:text-white">
+            <h2 className="text-lg font-semibold mb-2 text-blue-900 dark:text-white">
               Immutable Transparency
-            </h3>
+            </h2>
             <p className="text-gray-600 dark:text-gray-400 text-sm">
               On-chain anchoring of distributions and impact reports.
             </p>

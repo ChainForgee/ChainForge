@@ -17,6 +17,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate package.json files
+        run: |
+          node -e "const fs=require('fs'); require('child_process').execSync('git ls-files \"*package.json\"',{encoding:'utf8'}).trim().split('\\n').filter(Boolean).forEach(p=>{JSON.parse(fs.readFileSync(p,'utf8')); console.log('OK',p)})"
+
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:

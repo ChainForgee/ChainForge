@@ -298,5 +298,7 @@ function fingerprintApiKey(rawClientSecret: string): string {
   // SHA-256 fingerprint of a high-entropy API key/client secret for
   // exact-match lookup (matches ApiKeyGuard and ApiKey.keyHash), not
   // password hashing.
-  return createHash('sha256').update(rawClientSecret).digest('hex'); // lgtm[js/insufficient-password-hash]
+
+  // codeql[js/insufficient-password-hash]
+  return createHash('sha256').update(rawClientSecret).digest('hex');
 }

@@ -98,7 +98,7 @@ export default function ClaimReceiptPage() {
             onClick={() => router.back()}
             className="text-blue-600 dark:text-blue-400 hover:underline mb-4 flex items-center gap-2"
           >
-            ← Back
+            <span aria-hidden="true">←</span> Back
           </button>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
             Claim Receipt
@@ -110,8 +110,15 @@ export default function ClaimReceiptPage() {
 
         {/* Loading State */}
         {loading && (
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-8 text-center">
-            <Loader2 className="inline-block animate-spin text-blue-600 dark:text-blue-400 mb-4" size={32} />
+          <div
+            role="status"
+            className="bg-white dark:bg-slate-800 rounded-lg shadow p-8 text-center"
+          >
+            <Loader2
+              aria-hidden="true"
+              className="inline-block animate-spin text-blue-600 dark:text-blue-400 mb-4"
+              size={32}
+            />
             <p className="text-slate-600 dark:text-slate-400">
               Loading your receipt…
             </p>
@@ -120,8 +127,15 @@ export default function ClaimReceiptPage() {
 
         {/* Error State */}
         {error && (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 flex gap-4">
-            <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0" size={24} />
+          <div
+            role="alert"
+            className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 flex gap-4"
+          >
+            <AlertCircle
+              aria-hidden="true"
+              className="text-red-600 dark:text-red-400 flex-shrink-0"
+              size={24}
+            />
             <div>
               <h2 className="font-semibold text-red-900 dark:text-red-100 mb-1">
                 Error

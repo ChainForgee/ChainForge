@@ -34,9 +34,7 @@ describe('LoggerService.child', () => {
 
   it('reuses async local storage so correlation ids still flow through child loggers', () => {
     const childLogger = logger.child({ service: 'claims' });
-    const store = new Map<string, unknown>([
-      [CORRELATION_ID_KEY, 'corr-123'],
-    ]);
+    const store = new Map<string, unknown>([[CORRELATION_ID_KEY, 'corr-123']]);
 
     logger.getAsyncLocalStorage().run(store, () => {
       childLogger.log('hello', 'LoggerSpec', { requestId: 'req-1' });

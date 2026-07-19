@@ -22,7 +22,7 @@ export class MockBullModule {
   }
 
   static registerQueue(...queues: any[]): DynamicModule {
-    const providers = queues.map((queue) => {
+    const providers = queues.map(queue => {
       const name = typeof queue === 'string' ? queue : queue.name;
       return {
         provide: getQueueToken(name),
@@ -44,8 +44,9 @@ export class MockBullModule {
   }
 
   static registerQueueAsync(...queues: any[]): DynamicModule {
-    const providers = queues.map((queue) => {
-      const name = typeof queue === 'string' ? queue : (queue.name ?? 'default');
+    const providers = queues.map(queue => {
+      const name =
+        typeof queue === 'string' ? queue : (queue.name ?? 'default');
       return {
         provide: getQueueToken(name),
         useValue: {
@@ -65,7 +66,7 @@ export class MockBullModule {
     };
   }
 
-  static registerFlowProducer(...producers: any[]): DynamicModule {
+  static registerFlowProducer(..._producers: any[]): DynamicModule {
     return {
       module: MockBullModule,
       providers: [],
@@ -73,7 +74,7 @@ export class MockBullModule {
     };
   }
 
-  static registerFlowProducerAsync(...producers: any[]): DynamicModule {
+  static registerFlowProducerAsync(..._producers: any[]): DynamicModule {
     return {
       module: MockBullModule,
       providers: [],
@@ -84,7 +85,7 @@ export class MockBullModule {
 
 export const BullModule = MockBullModule;
 
-export const Processor = (name?: string) => (target: any) => {};
+export const Processor = (_name?: string) => (_target: any) => {};
 
 export class WorkerHost {
   worker: any = {
@@ -93,8 +94,6 @@ export class WorkerHost {
   };
 }
 
-export const OnWorkerEvent = (event: string) => (
-  target: any,
-  propertyKey: string,
-  descriptor: PropertyDescriptor,
-) => {};
+export const OnWorkerEvent =
+  (_event: string) =>
+  (_target: any, _propertyKey: string, _descriptor: PropertyDescriptor) => {};

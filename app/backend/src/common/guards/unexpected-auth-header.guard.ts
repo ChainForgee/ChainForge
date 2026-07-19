@@ -45,14 +45,15 @@ export class UnexpectedAuthHeaderGuard implements CanActivate {
     }
 
     // Check if the route is in the PUBLIC_AUTH_BYPASS list
-    const bypassEnv = this.configService.get<string>('PUBLIC_AUTH_BYPASS') ?? '';
+    const bypassEnv =
+      this.configService.get<string>('PUBLIC_AUTH_BYPASS') ?? '';
     const bypassedPaths = bypassEnv
       .split(',')
-      .map((p) => p.trim())
+      .map(p => p.trim())
       .filter(Boolean);
 
     const requestPath = request.path;
-    const isBypassed = bypassedPaths.some((bpath) => {
+    const isBypassed = bypassedPaths.some(bpath => {
       const cleanBPath = bpath.replace(/^\/+|\/+$/g, '');
       const cleanReqPath = requestPath.replace(/^\/+|\/+$/g, '');
       if (cleanBPath === cleanReqPath) return true;

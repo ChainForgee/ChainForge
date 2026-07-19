@@ -8,7 +8,6 @@ import { RedisService } from '@liaoliaots/nestjs-redis';
 import { CspReportController } from './csp-report.controller';
 import { LoggerModule } from '../../logger/logger.module';
 
-
 const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://localhost:3001',
@@ -195,11 +194,13 @@ export const createRateLimiter = (
   const logger = new Logger('RateLimiter');
 
   const windowMs = parseNumber(
-    config.get<string>('RATE_LIMIT_WINDOW_MS') ?? config.get<string>('THROTTLE_TTL'),
+    config.get<string>('RATE_LIMIT_WINDOW_MS') ??
+      config.get<string>('THROTTLE_TTL'),
     DEFAULT_RATE_LIMIT_WINDOW_MS,
   );
   const limit = parseNumber(
-    config.get<string>('RATE_LIMIT_LIMIT') ?? config.get<string>('API_RATE_LIMIT'),
+    config.get<string>('RATE_LIMIT_LIMIT') ??
+      config.get<string>('API_RATE_LIMIT'),
     DEFAULT_RATE_LIMIT,
   );
 
@@ -266,8 +267,12 @@ export const createRateLimiter = (
       const zrangeResult = results[2];
       const zcardResult = results[3];
 
-      const zrangeRes = Array.isArray(zrangeResult) ? (zrangeResult[1] as string[]) : undefined;
-      const zcardRes = Array.isArray(zcardResult) ? (zcardResult[1] as number) : undefined;
+      const zrangeRes = Array.isArray(zrangeResult)
+        ? (zrangeResult[1] as string[])
+        : undefined;
+      const zcardRes = Array.isArray(zcardResult)
+        ? (zcardResult[1] as number)
+        : undefined;
 
       const count = typeof zcardRes === 'number' ? zcardRes : 1;
 
@@ -312,9 +317,9 @@ export const createRateLimiter = (
  * CSRF is currently mitigated by design due to our stateless, token-based authentication
  * mechanism (`x-api-key` header). Since browsers do not automatically attach custom headers
  * on cross-origin requests, CSRF attacks are inherently prevented.
- * 
+ *
  * WARNING:
- * If cookie-based session management or any browser-managed credentials are introduced 
+ * If cookie-based session management or any browser-managed credentials are introduced
  * in the future, CSRF protection middleware MUST be implemented.
  */
 @Module({

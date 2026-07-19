@@ -20,7 +20,7 @@ import { MetricsService } from '../src/observability/metrics/metrics.service';
 // ── Histogram helper ─────────────────────────────────────────────────────────
 
 interface HistogramSample {
-  le: string;   // upper bound, "+Inf" for the catch-all bucket
+  le: string; // upper bound, "+Inf" for the catch-all bucket
   count: number;
 }
 
@@ -51,7 +51,10 @@ function parseBuckets(
       const eq = pair.indexOf('=');
       if (eq === -1) continue;
       const k = pair.slice(0, eq).trim();
-      const v = pair.slice(eq + 1).trim().replace(/^"|"$/g, '');
+      const v = pair
+        .slice(eq + 1)
+        .trim()
+        .replace(/^"|"$/g, '');
       labelMap[k] = v;
     }
 
@@ -106,7 +109,15 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
    * If the buckets change there, this test will catch the drift.
    */
   const EXPECTED_BUCKETS = [
-    '0.025', '0.05', '0.1', '0.25', '0.5', '1', '2.5', '5', '10',
+    '0.025',
+    '0.05',
+    '0.1',
+    '0.25',
+    '0.5',
+    '1',
+    '2.5',
+    '5',
+    '10',
   ];
 
   beforeAll(async () => {
@@ -144,21 +155,26 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
       // Distribute 1 000 observations evenly across 10 latency bands
       // (100 per band) covering the full bucket range.
       const bands = [
-        0.015,  // below first bucket  (< 25 ms)
-        0.03,   // 25–50 ms
-        0.07,   // 50–100 ms
-        0.15,   // 100–250 ms
-        0.35,   // 250–500 ms
-        0.75,   // 500 ms–1 s
-        1.5,    // 1–2.5 s
-        3.5,    // 2.5–5 s
-        7.5,    // 5–10 s
-        12.0,   // > 10 s (overflow)
+        0.015, // below first bucket  (< 25 ms)
+        0.03, // 25–50 ms
+        0.07, // 50–100 ms
+        0.15, // 100–250 ms
+        0.35, // 250–500 ms
+        0.75, // 500 ms–1 s
+        1.5, // 1–2.5 s
+        3.5, // 2.5–5 s
+        7.5, // 5–10 s
+        12.0, // > 10 s (overflow)
       ];
 
       for (const durationSeconds of bands) {
         for (let i = 0; i < TOTAL_REQUESTS / bands.length; i++) {
-          metricsService.recordHttpDuration('GET', TARGET_ROUTE, durationSeconds, 200);
+          metricsService.recordHttpDuration(
+            'GET',
+            TARGET_ROUTE,
+            durationSeconds,
+            200,
+          );
         }
       }
     });
@@ -173,7 +189,7 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
         status_code: '200',
       });
 
-      const infBucket = buckets.find((b) => b.le === '+Inf');
+      const infBucket = buckets.find(b => b.le === '+Inf');
       expect(infBucket).toBeDefined();
       // +Inf is cumulative — it must be ≥ our 1 000 injected observations
       // (may include earlier observations from the warm-up HTTP calls).
@@ -200,7 +216,7 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
 
       const buckets = parseBuckets(res.text, METRIC_NAME);
 
-      const presentLe = new Set(buckets.map((b) => b.le));
+      const presentLe = new Set(buckets.map(b => b.le));
       for (const expected of EXPECTED_BUCKETS) {
         expect(presentLe).toContain(expected);
       }
@@ -216,12 +232,12 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
         status_code: '200',
       });
 
-      const infBucket = buckets.find((b) => b.le === '+Inf');
+      const infBucket = buckets.find(b => b.le === '+Inf');
       expect(infBucket).toBeDefined();
 
       // The +Inf count is the grand total — it must be ≥ all finite buckets
       const maxFinite = Math.max(
-        ...buckets.filter((b) => b.le !== '+Inf').map((b) => b.count),
+        ...buckets.filter(b => b.le !== '+Inf').map(b => b.count),
       );
       expect(infBucket!.count).toBeGreaterThanOrEqual(maxFinite);
     });
@@ -241,7 +257,9 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
       expect(res.status).toBe(200);
 
       // Look for a bucket line with status_code="201"
-      expect(res.text).toMatch(/http_request_duration_seconds_bucket\{[^}]*status_code="201"/);
+      expect(res.text).toMatch(
+        /http_request_duration_seconds_bucket\{[^}]*status_code="201"/,
+      );
     });
 
     it('metric has help text that mentions SLO', async () => {
@@ -258,14 +276,14 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
       // Fetch /metrics baseline count
       const before = await request(app.getHttpServer()).get('/metrics');
       const bucketsBefore = parseBuckets(before.text, METRIC_NAME);
-      const infBefore = bucketsBefore.find((b) => b.le === '+Inf')?.count ?? 0;
+      const infBefore = bucketsBefore.find(b => b.le === '+Inf')?.count ?? 0;
 
       // Make one real request through the full middleware stack
       await request(app.getHttpServer()).get(TARGET_ROUTE);
 
       const after = await request(app.getHttpServer()).get('/metrics');
       const bucketsAfter = parseBuckets(after.text, METRIC_NAME);
-      const infAfter = bucketsAfter.find((b) => b.le === '+Inf')?.count ?? 0;
+      const infAfter = bucketsAfter.find(b => b.le === '+Inf')?.count ?? 0;
 
       // The +Inf counter must have grown by at least 1
       expect(infAfter).toBeGreaterThan(infBefore);

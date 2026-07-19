@@ -1,5 +1,9 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { EncryptionService } from 'src/common/encryption/encryption.service';
@@ -26,7 +30,8 @@ describe('Claims (e2e)', () => {
 
   const base = '/api/v1/claims';
   const testApiKey = 'e2e-test-key-0002';
-  const testApiKeyHash = '0ddfd56b80b5f63187c748e910d5ae632669a46f221170bdcbb04989e44d107a';
+  const testApiKeyHash =
+    '0ddfd56b80b5f63187c748e910d5ae632669a46f221170bdcbb04989e44d107a';
   const authHeader = { 'X-Api-Key': testApiKey } as Record<string, string>;
 
   beforeAll(async () => {
@@ -45,7 +50,11 @@ describe('Claims (e2e)', () => {
     });
 
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
     );
 
     await app.init();
@@ -104,7 +113,12 @@ describe('Claims (e2e)', () => {
     await request(app.getHttpServer())
       .post(base)
       .set(authHeader)
-      .send({ campaignId: 'invalid-id', amount: 100.5, recipientRef: 'recipient-123', tokenAddress: STELLAR_ADDR })
+      .send({
+        campaignId: 'invalid-id',
+        amount: 100.5,
+        recipientRef: 'recipient-123',
+        tokenAddress: STELLAR_ADDR,
+      })
       .expect(404);
   });
 
@@ -113,10 +127,17 @@ describe('Claims (e2e)', () => {
       data: { name: 'Test Campaign', budget: 1000 },
     });
     await prisma.claim.create({
-      data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1') },
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+      },
     });
 
-    const res = await request(app.getHttpServer()).get(base).set(authHeader).expect(200);
+    const res = await request(app.getHttpServer())
+      .get(base)
+      .set(authHeader)
+      .expect(200);
     const body = res.body as ClaimDto[];
     expect(body).toHaveLength(1);
   });
@@ -126,7 +147,11 @@ describe('Claims (e2e)', () => {
       data: { name: 'Test Campaign', budget: 1000 },
     });
     const claim = await prisma.claim.create({
-      data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1') },
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+      },
     });
 
     const res = await request(app.getHttpServer())
@@ -144,7 +169,11 @@ describe('Claims (e2e)', () => {
       data: { name: 'Test Campaign', budget: 1000 },
     });
     const claim = await prisma.claim.create({
-      data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1') },
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+      },
     });
 
     const res = await request(app.getHttpServer())
@@ -161,7 +190,12 @@ describe('Claims (e2e)', () => {
       data: { name: 'Test Campaign', budget: 1000 },
     });
     const claim = await prisma.claim.create({
-      data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1'), status: 'verified' },
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+        status: 'verified',
+      },
     });
 
     const res = await request(app.getHttpServer())
@@ -178,7 +212,12 @@ describe('Claims (e2e)', () => {
       data: { name: 'Test Campaign', budget: 1000 },
     });
     const claim = await prisma.claim.create({
-      data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1'), status: 'approved' },
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+        status: 'approved',
+      },
     });
 
     const res = await request(app.getHttpServer())
@@ -195,7 +234,12 @@ describe('Claims (e2e)', () => {
       data: { name: 'Test Campaign', budget: 1000 },
     });
     const claim = await prisma.claim.create({
-      data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1'), status: 'disbursed' },
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+        status: 'disbursed',
+      },
     });
 
     const res = await request(app.getHttpServer())
@@ -212,7 +256,12 @@ describe('Claims (e2e)', () => {
       data: { name: 'Test Campaign', budget: 1000 },
     });
     const claim = await prisma.claim.create({
-      data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1'), status: 'verified' },
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+        status: 'verified',
+      },
     });
 
     await request(app.getHttpServer())
@@ -227,7 +276,11 @@ describe('Claims (e2e)', () => {
         data: { name: 'Cache Campaign', budget: 1000 },
       });
       await prisma.claim.create({
-        data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('cache-test') },
+        data: {
+          campaignId: campaign.id,
+          amount: 50,
+          recipientRef: encryptionService.encrypt('cache-test'),
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -246,7 +299,11 @@ describe('Claims (e2e)', () => {
         data: { name: '304 Campaign', budget: 1000 },
       });
       await prisma.claim.create({
-        data: { campaignId: campaign.id, amount: 25, recipientRef: encryptionService.encrypt('304-test') },
+        data: {
+          campaignId: campaign.id,
+          amount: 25,
+          recipientRef: encryptionService.encrypt('304-test'),
+        },
       });
 
       const res1 = await request(app.getHttpServer())

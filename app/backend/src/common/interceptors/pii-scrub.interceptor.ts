@@ -221,7 +221,7 @@ export class PiiScrubInterceptor implements NestInterceptor {
         this.lastFetchedMemoryTime = now;
         return this.cachedPatterns;
       }
-    } catch (e) {
+    } catch {
       // Log / fallback silently
     }
 
@@ -239,12 +239,12 @@ export class PiiScrubInterceptor implements NestInterceptor {
         this.lastFetchedMemoryTime = now;
         try {
           await this.redisService.set('pii:patterns', fetched, 3600);
-        } catch (err) {
+        } catch {
           // Redis set fail is non-fatal
         }
         return this.cachedPatterns;
       }
-    } catch (err) {
+    } catch {
       // AI Service offline or slow
     }
 
@@ -265,7 +265,7 @@ export class PiiScrubInterceptor implements NestInterceptor {
             label,
             regex: new RegExp(pattern, 'g'),
           });
-        } catch (e) {
+        } catch {
           // Skip invalid patterns
         }
       }

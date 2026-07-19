@@ -109,7 +109,7 @@ describe('Unified Env Loader', () => {
     expect(configService.get('COMMON_VAR')).toBe(directCommon);
     expect(configService.get('ROOT_ONLY')).toBe(directRootOnly);
     expect(configService.get('BACKEND_ONLY')).toBe(directBackendOnly);
-    
+
     // Verify that the first candidate (rootEnvPath) successfully won over backendEnvPath
     expect(configService.get('COMMON_VAR')).toBe('root_val');
   });

@@ -16,12 +16,19 @@ export class PrismaClient {
     return new Proxy(this, {
       get(target, prop) {
         if (prop === '$connect') return jest.fn().mockResolvedValue(undefined);
-        if (prop === '$disconnect') return jest.fn().mockResolvedValue(undefined);
+        if (prop === '$disconnect')
+          return jest.fn().mockResolvedValue(undefined);
         if (prop === '$on') return jest.fn();
         if (prop === '$transaction') {
-          return jest.fn((cb) => Promise.resolve(typeof cb === 'function' ? cb(this) : cb));
+          return jest.fn(cb =>
+            Promise.resolve(typeof cb === 'function' ? cb(this) : cb),
+          );
         }
-        if (typeof prop === 'symbol' || prop === 'constructor' || prop === 'then') {
+        if (
+          typeof prop === 'symbol' ||
+          prop === 'constructor' ||
+          prop === 'then'
+        ) {
           return (target as any)[prop];
         }
         return createModelMock();

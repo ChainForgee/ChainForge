@@ -509,7 +509,7 @@ describe('HttpCacheInterceptor', () => {
       expect(response.getHeader('Link')).toBe(
         '</etag>; rel=etag; status=pending',
       );
-      expect(response.getHeader('X-Http-Cache')).toBe('pending');
+      expect(response.getHeader('X-Edge-Cache-Status')).toBe('pending');
 
       await nextTick();
 
@@ -517,7 +517,7 @@ describe('HttpCacheInterceptor', () => {
       expect(response.getHeader('Link')).toMatch(
         /^<\/etag>; rel=etag; etag="[a-f0-9]{64}"$/,
       );
-      expect(response.getHeader('X-Http-Cache')).toBe('miss');
+      expect(response.getHeader('X-Edge-Cache-Status')).toBe('miss');
     });
 
     it('computes identical deferred ETags for identical streaming-cache bodies', async () => {

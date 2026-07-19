@@ -643,3 +643,27 @@ mod token_decimal_normalization {
         assert!(result.is_ok());
     }
 }
+#[test]
+fn test_claim_with_proof_oversized_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // 1. Generate an oversized proof vector containing 33 elements (limit is 32)
+    let mut oversized_proof = Vec::new(&env);
+    for _ in 0..33 {
+        oversized_proof.push_back(soroban_sdk::String::from_str(&env, "a"));
+    }
+
+    // 2. Instantiate dummy variables for the invocation
+    let dummy_id = 1u64;
+    let dummy_claimant = Address::generate(&env);
+
+    // 3. Register the contract using the non-deprecated `.register` method
+    let contract_id = env.register(crate::AidEscrow, ());
+    let client = AidEscrowClient::new(&env, &contract_id);
+
+    // 4. Try the claim invocation and assert it rejects with our custom error
+    let result = client.try_claim_with_proof(&dummy_id, &dummy_claimant, &oversized_proof);
+
+    assert_eq!(result, Err(Ok(crate::Error::ProofTooLarge)));
+}

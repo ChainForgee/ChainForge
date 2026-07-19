@@ -13,9 +13,36 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: chainforge_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chainforge_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate package.json files
+        run: |
+          node -e "const fs=require('fs'); require('child_process').execSync('git ls-files \"*package.json\"',{encoding:'utf8'}).trim().split('\\n').filter(Boolean).forEach(p=>{JSON.parse(fs.readFileSync(p,'utf8')); console.log('OK',p)})"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v2
@@ -34,8 +61,20 @@ jobs:
       - name: Lint
         run: pnpm --filter backend run lint
 
-      - name: Test
-        run: pnpm --filter backend run test
+      - name: Prepare coverage database
+        working-directory: app/backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chainforge_test?schema=public
+        run: pnpm exec prisma db push --skip-generate
+
+      - name: Test with coverage
+        env:
+          API_KEY: test-api-key-123
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chainforge_test?schema=public
+          NODE_ENV: test
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: '6379'
+        run: pnpm --filter backend run test:cov
 
       - name: Build
         run: pnpm --filter backend run build
@@ -43,7 +82,7 @@ jobs:
       - name: Export OpenAPI spec
         working-directory: app/backend
         env:
-          DATABASE_URL: file:./prisma/dev.db
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chainforge_test?schema=public
           NODE_ENV: development
         run: npm run spec:export
 

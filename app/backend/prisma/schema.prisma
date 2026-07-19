@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url = env("DATABASE_URL")
 }
 
 enum CampaignStatus {
@@ -388,8 +388,7 @@ model ApiKey {
   id          String   @id @default(cuid())
   // `key` is a legacy plaintext column. New keys should use `keyHash` and
   // `keyPreview` and never store raw secrets.
-  key         String?  @unique
-  keyHash     String?  @unique
+  keyHash     String @unique @default("")
   keyPreview  String?
   role        AppRole
   ngoId       String?

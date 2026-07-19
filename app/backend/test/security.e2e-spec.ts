@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { bootstrap } from '../src/main';
 import {
   buildCorsOptions,
   createCorsOriginValidator,
@@ -302,5 +303,23 @@ describe('Security (e2e)', () => {
       expect(response.status).toBe(200);
       expect(response.text).toContain('Swagger UI');
     });
+    describe('Bootstrap validation', () => {
+    const originalEnv = { NODE_ENV: process.env.NODE_ENV, CORS_ORIGINS: process.env.CORS_ORIGINS };
+    afterAll(() => {
+      process.env.NODE_ENV = originalEnv.NODE_ENV;
+      if (originalEnv.CORS_ORIGINS !== undefined) {
+        process.env.CORS_ORIGINS = originalEnv.CORS_ORIGINS;
+      } else {
+        delete process.env.CORS_ORIGINS;
+      }
+    });
+
+    it('should abort if CORS_ORIGINS missing in production', async () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.CORS_ORIGINS;
+      await expect(bootstrap()).rejects.toThrow(/CORS_ORIGINS/);
+    });
   });
+
+});
 });

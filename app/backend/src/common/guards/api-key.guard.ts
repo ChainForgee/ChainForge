@@ -43,11 +43,10 @@ export class ApiKeyGuard implements CanActivate {
 
     const apiKeyHash = createHash('sha256').update(apiKey).digest('hex');
 
-    // Primary path: look up the key in the database (hashed preferred; legacy plaintext supported)
     const record = await this.prisma.apiKey.findFirst({
       where: {
         revokedAt: null,
-        OR: [{ keyHash: apiKeyHash }, { key: apiKey }],
+        keyHash: apiKeyHash,
       },
     });
 

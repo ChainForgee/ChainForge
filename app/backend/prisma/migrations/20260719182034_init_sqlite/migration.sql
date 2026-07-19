@@ -202,15 +202,14 @@ CREATE TABLE "Campaign" (
 
 -- CreateTable
 CREATE TABLE "Role" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL
 );
 
 -- CreateTable
 CREATE TABLE "ApiKey" (
     "id" TEXT NOT NULL PRIMARY KEY,
-    "key" TEXT,
-    "keyHash" TEXT,
+    "keyHash" TEXT NOT NULL DEFAULT '',
     "keyPreview" TEXT,
     "role" TEXT NOT NULL,
     "ngoId" TEXT,
@@ -259,6 +258,34 @@ CREATE TABLE "EvidenceQueueItem" (
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "EvidenceQueueItem_orgId_fkey" FOREIGN KEY ("orgId") REFERENCES "Organization" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "UploadSession" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "ownerId" TEXT NOT NULL,
+    "orgId" TEXT,
+    "fileName" TEXT NOT NULL,
+    "mimeType" TEXT NOT NULL,
+    "totalSize" INTEGER NOT NULL,
+    "chunkSize" INTEGER NOT NULL,
+    "totalChunks" INTEGER NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "expiresAt" DATETIME NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "UploadChunk" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "sessionId" TEXT NOT NULL,
+    "index" INTEGER NOT NULL,
+    "size" INTEGER NOT NULL,
+    "checksum" TEXT NOT NULL,
+    "filePath" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "UploadChunk_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "UploadSession" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -373,6 +400,22 @@ CREATE TABLE "EntityLink" (
     CONSTRAINT "EntityLink_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "RegistryProject" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
+-- CreateTable
+CREATE TABLE "DeploymentMetadata" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "contractName" TEXT NOT NULL,
+    "network" TEXT NOT NULL,
+    "contractId" TEXT NOT NULL,
+    "wasmHash" TEXT NOT NULL,
+    "deployedAt" DATETIME NOT NULL,
+    "commitSha" TEXT,
+    "deployer" TEXT,
+    "transactionHash" TEXT,
+    "metadata" JSONB,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
 -- CreateIndex
 CREATE INDEX "AidPackage_campaignId_idx" ON "AidPackage"("campaignId");
 
@@ -443,6 +486,9 @@ CREATE INDEX "SessionSubmission_stepId_idx" ON "SessionSubmission"("stepId");
 CREATE INDEX "SessionSubmission_deletedAt_idx" ON "SessionSubmission"("deletedAt");
 
 -- CreateIndex
+CREATE INDEX "SessionSubmission_sessionId_deletedAt_idx" ON "SessionSubmission"("sessionId", "deletedAt");
+
+-- CreateIndex
 CREATE INDEX "VerificationRequest_deletedAt_idx" ON "VerificationRequest"("deletedAt");
 
 -- CreateIndex
@@ -455,10 +501,16 @@ CREATE INDEX "VerificationRequest_status_idx" ON "VerificationRequest"("status")
 CREATE INDEX "VerificationRequest_reviewedAt_idx" ON "VerificationRequest"("reviewedAt");
 
 -- CreateIndex
+CREATE INDEX "VerificationRequest_reviewedBy_idx" ON "VerificationRequest"("reviewedBy");
+
+-- CreateIndex
 CREATE INDEX "Claim_status_idx" ON "Claim"("status");
 
 -- CreateIndex
 CREATE INDEX "Claim_campaignId_idx" ON "Claim"("campaignId");
+
+-- CreateIndex
+CREATE INDEX "Claim_campaignId_status_idx" ON "Claim"("campaignId", "status");
 
 -- CreateIndex
 CREATE INDEX "Claim_createdAt_idx" ON "Claim"("createdAt");
@@ -527,9 +579,6 @@ CREATE INDEX "Campaign_deletedAt_idx" ON "Campaign"("deletedAt");
 CREATE UNIQUE INDEX "Role_name_key" ON "Role"("name");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ApiKey_key_key" ON "ApiKey"("key");
-
--- CreateIndex
 CREATE UNIQUE INDEX "ApiKey_keyHash_key" ON "ApiKey"("keyHash");
 
 -- CreateIndex
@@ -570,6 +619,21 @@ CREATE INDEX "EvidenceQueueItem_fingerprint_idx" ON "EvidenceQueueItem"("fingerp
 
 -- CreateIndex
 CREATE INDEX "EvidenceQueueItem_nearDuplicateOf_idx" ON "EvidenceQueueItem"("nearDuplicateOf");
+
+-- CreateIndex
+CREATE INDEX "UploadSession_ownerId_idx" ON "UploadSession"("ownerId");
+
+-- CreateIndex
+CREATE INDEX "UploadSession_status_idx" ON "UploadSession"("status");
+
+-- CreateIndex
+CREATE INDEX "UploadSession_expiresAt_idx" ON "UploadSession"("expiresAt");
+
+-- CreateIndex
+CREATE INDEX "UploadChunk_sessionId_idx" ON "UploadChunk"("sessionId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "UploadChunk_sessionId_index_key" ON "UploadChunk"("sessionId", "index");
 
 -- CreateIndex
 CREATE INDEX "NotificationOutbox_status_idx" ON "NotificationOutbox"("status");
@@ -660,3 +724,15 @@ CREATE INDEX "EntityLink_confidenceScore_idx" ON "EntityLink"("confidenceScore")
 
 -- CreateIndex
 CREATE INDEX "EntityLink_isActive_idx" ON "EntityLink"("isActive");
+
+-- CreateIndex
+CREATE INDEX "DeploymentMetadata_network_idx" ON "DeploymentMetadata"("network");
+
+-- CreateIndex
+CREATE INDEX "DeploymentMetadata_contractId_idx" ON "DeploymentMetadata"("contractId");
+
+-- CreateIndex
+CREATE INDEX "DeploymentMetadata_deployedAt_idx" ON "DeploymentMetadata"("deployedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DeploymentMetadata_network_contractName_key" ON "DeploymentMetadata"("network", "contractName");

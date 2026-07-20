@@ -502,7 +502,8 @@ export class ClaimsService {
 
       // lgtm[js/externally-controlled-format-string]
       // Audit log for status change
-      void this.auditLog('claim', id, `status_changed_to_${toStatus}`, {
+      const actionName = 'status_changed_to_' + String(toStatus);
+      void this.auditLog('claim', id, actionName, {
         from: fromStatus,
         to: toStatus,
         onchainResult: onchainResult

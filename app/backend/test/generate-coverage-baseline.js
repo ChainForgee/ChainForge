@@ -13,7 +13,7 @@ const uncoveredTolerance = {
 
 const entries = Object.entries(summary)
   .filter(([file]) => file !== 'total')
-  .map(([file, coverage]) => [path.relative(backendRoot, file), coverage])
+  .map(([file, coverage]) => [path.relative(backendRoot, file).replace(/\\/g, '/'), coverage])
   .filter(([file]) => file.startsWith('src/') || file.startsWith('cache/'))
   .filter(([file]) => file !== globalSentinel)
   .sort(([left], [right]) => left.localeCompare(right));

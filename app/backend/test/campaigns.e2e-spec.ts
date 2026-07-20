@@ -5,7 +5,7 @@ import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ApiKeyGuard } from 'src/common/guards/api-key.guard';
 import { App } from 'supertest/types';
-
+jest.setTimeout(30000);
 type ApiResponse<T> = {
   success: boolean;
   data: T;
@@ -20,7 +20,6 @@ type CampaignResponseDto = {
 };
 
 function bodyAs<T>(res: SupertestResponse): ApiResponse<T> {
-  // supertest Response.body is `any`; we cast once here to satisfy strict ESLint rules
   return res.body as ApiResponse<T>;
 }
 
@@ -29,6 +28,9 @@ describe('Campaigns (e2e)', () => {
   let prisma: PrismaService;
 
   const base = '/api/v1/campaigns';
+  const testApiKey = 'e2e-test-key-0001';
+  const testApiKeyHash = '7cd155083be719224524695fc6e61cf3747b99dd3f6260e392f1b3b69577dcd9';
+  const authHeader = { 'X-Api-Key': testApiKey } as Record<string, string>;
 
   beforeAll(async () => {
     process.env.API_KEY = 'dev-admin-key-000';
@@ -46,12 +48,6 @@ describe('Campaigns (e2e)', () => {
       prefix: 'v',
     });
 
-    app.use((req: any, res: any, next: any) => {
-      if (!req.headers['x-api-key']) {
-        req.headers['x-api-key'] = 'dev-admin-key-000';
-      }
-      next();
-    });
 
     app.useGlobalPipes(
       new ValidationPipe({
@@ -63,19 +59,36 @@ describe('Campaigns (e2e)', () => {
 
     await app.init();
     prisma = app.get(PrismaService);
+
+    await prisma.apiKey.upsert({
+      where: { keyHash: testApiKeyHash },
+      update: { revokedAt: null },
+      create: {
+        key: testApiKey,
+        keyHash: testApiKeyHash,
+        keyPreview: testApiKey.slice(0, 8),
+        role: 'admin',
+      },
+    });
   });
 
   beforeEach(async () => {
+    await prisma.claim.deleteMany();
+    await prisma.balanceLedger.deleteMany();
+    await prisma.aidPackage.deleteMany();
     await prisma.campaign.deleteMany();
   });
 
   afterAll(async () => {
+    await prisma.apiKey.deleteMany({ where: { keyHash: testApiKeyHash } });
     await app.close();
+    await new Promise(resolve => setTimeout(resolve, 2000));
   });
 
   it('POST /campaigns creates a campaign', async () => {
     const res = await request(app.getHttpServer())
       .post(base)
+      .set(authHeader)
       .send({ name: 'Test Campaign', budget: 1000 })
       .expect(201);
 
@@ -89,11 +102,13 @@ describe('Campaigns (e2e)', () => {
   it('POST /campaigns rejects missing required fields', async () => {
     await request(app.getHttpServer())
       .post(base)
+      .set(authHeader)
       .send({ budget: 1000 })
       .expect(400);
 
     await request(app.getHttpServer())
       .post(base)
+      .set(authHeader)
       .send({ name: 'Missing Budget' })
       .expect(400);
   });
@@ -101,6 +116,7 @@ describe('Campaigns (e2e)', () => {
   it('POST /campaigns rejects invalid budgets', async () => {
     await request(app.getHttpServer())
       .post(base)
+      .set(authHeader)
       .send({ name: 'Bad Budget', budget: -1 })
       .expect(400);
   });
@@ -108,6 +124,7 @@ describe('Campaigns (e2e)', () => {
   it('PATCH /campaigns/:id/archive is idempotent', async () => {
     const createdRes = await request(app.getHttpServer())
       .post(base)
+      .set(authHeader)
       .send({ name: 'Archive Me', budget: 10 })
       .expect(201);
 
@@ -116,6 +133,7 @@ describe('Campaigns (e2e)', () => {
 
     const firstRes = await request(app.getHttpServer())
       .patch(`${base}/${id}/archive`)
+      .set(authHeader)
       .expect(200);
 
     const firstBody = bodyAs<CampaignResponseDto>(firstRes);
@@ -125,6 +143,7 @@ describe('Campaigns (e2e)', () => {
 
     const secondRes = await request(app.getHttpServer())
       .patch(`${base}/${id}/archive`)
+      .set(authHeader)
       .expect(200);
 
     const secondBody = bodyAs<CampaignResponseDto>(secondRes);
@@ -137,10 +156,14 @@ describe('Campaigns (e2e)', () => {
   it('GET /campaigns returns a list', async () => {
     await request(app.getHttpServer())
       .post(base)
+      .set(authHeader)
       .send({ name: 'List Me', budget: 5 })
       .expect(201);
 
-    const res = await request(app.getHttpServer()).get(base).expect(200);
+    const res = await request(app.getHttpServer())
+      .get(base)
+      .set(authHeader)
+      .expect(200);
 
     const body = bodyAs<{ data: CampaignResponseDto[]; nextCursor: string | null }>(res);
 
@@ -152,6 +175,39 @@ describe('Campaigns (e2e)', () => {
   it('GET /campaigns/:id returns 404 for missing campaign', async () => {
     await request(app.getHttpServer())
       .get(`${base}/does-not-exist`)
+      .set(authHeader)
       .expect(404);
+  });
+
+  describe('Campaigns HTTP cache', () => {
+    it('GET /campaigns returns Cache-Control with max-age=30', async () => {
+      const res = await request(app.getHttpServer())
+        .get(base)
+        .set(authHeader)
+        .expect(200);
+
+      const cc = res.headers['cache-control'];
+      expect(cc).toBeDefined();
+      expect(cc).toContain('max-age=30');
+      expect(cc).toContain('private');
+    });
+
+    it('second call within TTL returns 304 with X-Edge-Cache-Status: hit', async () => {
+      const res1 = await request(app.getHttpServer())
+        .get(base)
+        .set(authHeader)
+        .expect(200);
+
+      const etag = res1.headers['etag'];
+      expect(etag).toBeDefined();
+
+      const res2 = await request(app.getHttpServer())
+        .get(base)
+        .set(authHeader)
+        .set('If-None-Match', etag)
+        .expect(304);
+
+      expect(res2.headers['x-edge-cache-status']).toBe('hit');
+    });
   });
 });

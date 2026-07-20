@@ -1,23 +1,65 @@
-# Dependabot version updates are intentionally disabled on this repository.
-#
-# The Dependabot configuration schema requires at least one entry under
-# `updates`. The minimum-viable disable below uses the GitHub Actions
-# ecosystem with `open-pull-requests-limit: 0` so that Dependabot cannot
-# open any pull request, and by listing only one ecosystem here we ensure
-# that no other ecosystem (npm, pip, cargo, etc.) will be scanned at all.
-#
-# To re-enable Dependabot in the future, replace this file with a full
-# configuration generated from the official options reference:
-# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
-#
-# Note: this file only governs Dependabot *version* updates. To also
-# disable Dependabot *security* updates, toggle the repo setting
-# "Dependabot security updates" off under
-# Settings -> Code security and analysis on GitHub.
 version: 2
 updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "npm"
+    commit-message:
+      prefix: "chore(npm)"
+      include: "scope"
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "cargo"
+    directory: "/app/onchain"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "cargo"
+    commit-message:
+      prefix: "chore(cargo)"
+      include: "scope"
+    groups:
+      cargo-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "pip"
+    commit-message:
+      prefix: "chore(pip)"
+      include: "scope"
+    groups:
+      pip-dependencies:
+        patterns:
+          - "*"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 0
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(actions)"
+      include: "scope"
+    groups:
+      github-actions-dependencies:
+        patterns:
+          - "*"

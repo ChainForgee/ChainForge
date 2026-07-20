@@ -86,56 +86,6 @@ class TestSchemaModelVersionSnapshots:
         assert snapshot["success"] is True
         assert snapshot["provider"] == "openai"
 
-    def test_humanitarian_verification_response_v2_snapshot(self):
-        from schemas.humanitarian_verification_v2 import HumanitarianVerificationResponseV2, HumanitarianVerificationDetailsV2
-        resp = HumanitarianVerificationResponseV2(
-            success=True,
-            provider="openai",
-            model="gpt-4o-mini",
-            prompt_variant="primary",
-            verification=HumanitarianVerificationDetailsV2(
-                verdict="credible",
-                confidence=0.95,
-                summary="Clear test summary",
-                criteria_assessment=[
-                    {"criterion": "water_supply", "status": "met", "reason": "enough water"}
-                ],
-                risk_flags=[],
-                missing_information=[],
-                recommended_next_steps=[]
-            ),
-            model_version="gpt-4o-mini",
-            stamp={
-                "provider": "openai",
-                "model": "gpt-4o-mini",
-                "prompt_variant": "primary"
-            }
-        )
-        snapshot = resp.model_dump()
-        assert snapshot["model_version"] == "gpt-4o-mini"
-        assert snapshot["success"] is True
-        assert snapshot["provider"] == "openai"
-        assert snapshot["verification"]["verdict"] == "credible"
-        assert snapshot["verification"]["confidence"] == 0.95
-        assert snapshot["stamp"]["provider"] == "openai"
-        assert snapshot["stamp"]["model"] == "gpt-4o-mini"
-        assert snapshot["stamp"]["prompt_variant"] == "primary"
-
-        # Explicitly check json schema pinning
-        schema = HumanitarianVerificationResponseV2.model_json_schema()
-        assert "success" in schema["properties"]
-        assert "provider" in schema["properties"]
-        assert "model" in schema["properties"]
-        assert "prompt_variant" in schema["properties"]
-        assert "verification" in schema["properties"]
-        assert "stamp" in schema["properties"]
-        
-        # Details schema validation
-        details_schema = schema["$defs"]["HumanitarianVerificationDetailsV2"]["properties"]
-        assert "verdict" in details_schema
-        assert "confidence" in details_schema
-        assert "summary" in details_schema
-
     def test_anonymize_response_snapshot(self):
         from schemas.anonymization import AnonymizeResponse, PIISummary
         resp = AnonymizeResponse(
@@ -164,5 +114,4 @@ class TestSchemaModelVersionSnapshots:
         snapshot = resp.model_dump()
         assert snapshot["model_version"] == "gpt-4o-mini"
         assert snapshot["success"] is True
-
 

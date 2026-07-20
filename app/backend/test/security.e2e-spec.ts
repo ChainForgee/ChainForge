@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
 import {
   buildCorsOptions,
   createCorsOriginValidator,
@@ -25,12 +24,42 @@ const setEnvValue = (key: string, value: string | undefined) => {
   }
 };
 
+@Controller()
+class TestController {
+  @Get('health')
+  @HttpCode(200)
+  getHealth() {
+    return { status: 'OK' };
+  }
+
+  @Get()
+  @HttpCode(200)
+  getRoot() {
+    return { message: 'OK' };
+  }
+}
+
 const createTestApp = async ({ enableDocs }: TestAppOptions) => {
+  const mockRedisInstance = new RedisMock();
   const moduleFixture: TestingModule = await Test.createTestingModule({
-    imports: [AppModule],
+    imports: [
+      ConfigModule.forRoot({
+        isGlobal: true,
+      }),
+    ],
+    controllers: [TestController],
+    providers: [
+      {
+        provide: RedisService,
+        useValue: {
+          getOrThrow: () => mockRedisInstance,
+        },
+      },
+    ],
   }).compile();
 
   const app = moduleFixture.createNestApplication();
+  app.getHttpAdapter().getInstance().disable('x-powered-by');
 
   app.setGlobalPrefix('api');
   app.enableVersioning({

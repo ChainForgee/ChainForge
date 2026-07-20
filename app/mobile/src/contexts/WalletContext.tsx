@@ -1,5 +1,6 @@
 import React, { PropsWithChildren, createContext, useContext, useEffect, useState } from 'react';
 import * as ExpoLinking from 'expo-linking';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ConnectedWalletSession,
   WalletConnectionStatus,
@@ -22,6 +23,8 @@ interface WalletContextValue {
 }
 
 const WalletContext = createContext<WalletContextValue | undefined>(undefined);
+
+const PAIRING_STORAGE_KEY = '@chainforge:pairing';
 
 const getErrorMessage = (error: unknown) => {
   if (error instanceof Error) {
@@ -60,11 +63,21 @@ export const WalletProvider: React.FC<PropsWithChildren> = ({ children }) => {
       setPublicKey(session.publicKey);
       setWalletName(session.walletName);
       setPairingUri(null);
+      AsyncStorage.removeItem(PAIRING_STORAGE_KEY).catch(() => {});
       setError(null);
       setStatus('connected');
     };
 
     const bootstrap = async () => {
+      try {
+        const persistedUri = await AsyncStorage.getItem(PAIRING_STORAGE_KEY);
+        if (persistedUri && isMounted) {
+          setPairingUri(persistedUri);
+        }
+      } catch (e) {
+        // Ignore read errors
+      }
+
       try {
         const existingSession = await restoreWalletSession();
         if (existingSession) {
@@ -103,6 +116,7 @@ export const WalletProvider: React.FC<PropsWithChildren> = ({ children }) => {
     setPublicKey(idleState.publicKey);
     setWalletName(idleState.walletName);
     setPairingUri(idleState.pairingUri);
+    AsyncStorage.removeItem(PAIRING_STORAGE_KEY).catch(() => {});
     setError(idleState.error);
     setStatus(idleState.status);
   };
@@ -114,6 +128,11 @@ export const WalletProvider: React.FC<PropsWithChildren> = ({ children }) => {
     try {
       const { pairingUri: nextPairingUri, approval } = await createWalletConnection();
       setPairingUri(nextPairingUri);
+      try {
+        await AsyncStorage.setItem(PAIRING_STORAGE_KEY, nextPairingUri);
+      } catch (storageError) {
+        console.warn('Failed to persist pairing URI', storageError);
+      }
       setStatus('awaiting-approval');
 
       try {
@@ -128,6 +147,7 @@ export const WalletProvider: React.FC<PropsWithChildren> = ({ children }) => {
         setPublicKey(session.publicKey);
         setWalletName(session.walletName);
         setPairingUri(null);
+        AsyncStorage.removeItem(PAIRING_STORAGE_KEY).catch(() => {});
         setError(null);
         setStatus('connected');
       } catch (approvalError) {

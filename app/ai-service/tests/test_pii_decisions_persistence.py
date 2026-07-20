@@ -12,9 +12,9 @@ Covers:
     that can be consumed by auditors with no privacy leak.
 """
 
+import hashlib
 import json
 import os
-import tempfile
 import time
 
 import pytest
@@ -33,11 +33,21 @@ from persistence.pii_decisions import (
 # ---------------------------------------------------------------------------
 
 
+def _text_fingerprint(text: str) -> str:
+    """SHA-256 hex digest — mirrors the production code path in
+    :mod:`api.v1.anonymize` so the helper can never accidentally mask a
+    privacy regression by storing source text under the ``text_fingerprint``
+    column."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def _build_record(
     text: str,
     *,
     created_at: float | None = None,
     pii_summary: dict | None = None,
+    token_counts: dict | None = None,
+    text_fingerprint: str | None = None,
 ) -> PIIDecisionRecord:
     return PIIDecisionRecord(
         id=new_record_id(),
@@ -53,8 +63,12 @@ def _build_record(
             "ids": 0,
             "total": 3,
         },
-        token_counts={"[RECIPIENT_NAME]": 1, "[LOCATION]": 2},
-        text_fingerprint=text,
+        token_counts=token_counts
+        if token_counts is not None
+        else {"[RECIPIENT_NAME]": 1, "[LOCATION]": 2},
+        text_fingerprint=text_fingerprint
+        if text_fingerprint is not None
+        else _text_fingerprint(text),
         model_version="test-v1",
     )
 
@@ -95,6 +109,10 @@ class TestPIIDecisionStore:
         assert row["pii_summary"]["locations"] == 2
         assert row["token_counts"] == {"[LOCATION]": 2, "[RECIPIENT_NAME]": 1}
         assert row["model_version"] == "test-v1"
+        # Default helper must produce a SHA-256 fingerprint, never raw text.
+        assert row["text_fingerprint"] == _text_fingerprint(
+            "On 15 Jan 2025, Mary Johnson received aid in Maiduguri."
+        )
 
     def test_save_records_must_not_contain_text(self, tmp_store_path):
         """Explicit guardrail: raw or anonymized text must never reach the
@@ -103,11 +121,15 @@ class TestPIIDecisionStore:
         """
         store = PIIDecisionStore(tmp_store_path)
         store.initialize()
-        record = _build_record("Mary Johnson's 15 Jan 2025 Maideguri Camp entry.")
+        record = _build_record(
+            "Mary Johnson's 15 Jan 2025 Maideguri Camp entry.",
+        )
         store.save_decision(record, retention_days=30)
 
         # Inspect the underlying file as JSON-shaped bytes to make the
-        # privacy guarantee explicit.
+        # privacy guarantee explicit.  The fingerprint column holds the
+        # SHA-256 hex digest of the source text; bytes that would only
+        # appear if we reverted to storing raw text must be absent.
         with open(tmp_store_path, "rb") as fh:
             raw = fh.read()
         offending = [
@@ -115,6 +137,7 @@ class TestPIIDecisionStore:
             b"Johnson",
             b"Maideguri",
             b"15 Jan 2025",
+            b"Camp entry",
             b"anonymized_text",
             b"original_text",
         ]
@@ -132,11 +155,15 @@ class TestPIIDecisionStore:
         base = time.time()
         for offset, total in [(100, 5), (50, 3), (10, 1)]:
             store.save_decision(
-                _build_record(f"old-{offset}", created_at=base + offset, pii_summary={
-                    "names": 0, "locations": 0, "dates": 0,
-                    "emails": 0, "phones": 0, "ids": 0,
-                    "total": total,
-                }),
+                _build_record(
+                    f"old-{offset}",
+                    created_at=base + offset,
+                    pii_summary={
+                        "names": 0, "locations": 0, "dates": 0,
+                        "emails": 0, "phones": 0, "ids": 0,
+                        "total": total,
+                    },
+                ),
                 retention_days=30,
             )
 
@@ -232,7 +259,6 @@ class TestPIIDecisionsEndpoint:
     def _build_app(self, tmp_store_path, *, retention_days: int = 30) -> FastAPI:
         from api.v1 import pii_decisions as pii_decisions_module
         from config import settings as _settings
-        from fastapi import APIRouter
 
         # Configure the store path before the route resolves it.
         _settings.pii_decisions_enabled = True
@@ -245,7 +271,7 @@ class TestPIIDecisionsEndpoint:
         app.include_router(pii_decisions_module.router)
         return app
 
-    def test_endpoint_disabled_returns_404(self, tmp_store_path, monkeypatch):
+    def test_endpoint_disabled_returns_404(self, tmp_store_path):
         from config import settings as _settings
         _settings.pii_decisions_enabled = False
         _settings.pii_decisions_db_path = tmp_store_path
@@ -296,10 +322,19 @@ class TestPIIDecisionsEndpoint:
             "model_version",
         }
         assert record["pii_summary"]["total"] == 3
+        assert record["token_counts"] == {
+            "[RECIPIENT_NAME]": 1,
+            "[LOCATION]": 1,
+            "[EVENT_DATE]": 1,
+        }
         # Defense: ensure the response never carries raw text fields.
         assert "text" not in record
         assert "anonymized_text" not in record
         assert "original_text" not in record
+        # Privacy guarantee: text_fingerprint is the SHA-256 hex digest.
+        assert record["text_fingerprint"] == _text_fingerprint(
+            "Mary Johnson at Maiduguri Camp on 15 Jan 2025"
+        )
 
     def test_endpoint_rejects_oversized_limit(self, tmp_store_path):
         app = self._build_app(tmp_store_path)

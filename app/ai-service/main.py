@@ -102,29 +102,55 @@ class MaxRequestBodySizeMiddleware:
             "/openapi.json",
         ]
         self.bypass_prefixes = tuple({*(default_bypass), *(bypass_prefixes or [])})
-        # Per-route overrides populated by ``lifespan``.  Keyed by
-        # ``(method_upper, path_regex_compiled)``; missing entries fall
-        # back to ``self.max_bytes``.  Lazy attribute so older tests
-        # that construct the middleware with a passthrough ``app``
-        # mock don't have to set it.
+        # Per-route overrides are derived by walking ``self.app.routes``.
+        # ``self.app`` is the next ASGI layer after this middleware —
+        # for a FastAPI app that is the Starlette ``Router`` instance
+        # (``app.router``) which carries the registered route table.
+        # Walking it lazily on first request avoids any dependency on
+        # cross-layer ``state`` objects (each ASGI layer has its own
+        # ``state``) and works in tests that bypass the FastAPI lifespan.
         self.route_limits: dict = {}
+        self._route_limits_built: bool = False
+
+    def _ensure_route_limits(self) -> None:
+        """Walk ``self.app.routes`` for endpoints marked with
+        ``_max_body_size``.  This is cached for the lifetime of the
+        middleware instance — the route table is fixed at app build
+        time and does not change at request time.
+        """
+        if self._route_limits_built:
+            return
+        self._route_limits_built = True
+        limits: dict = {}
+        for route in getattr(self.app, "routes", None) or []:
+            endpoint = getattr(route, "endpoint", None)
+            marker = getattr(endpoint, "_max_body_size", None)
+            if not marker:
+                continue
+            try:
+                regex = route.path_regex
+            except Exception:  # pragma: no cover - non-Route ASGI apps
+                continue
+            for method in route.methods or set():
+                limits[(method.upper(), regex)] = int(marker)
+        self.route_limits = limits
 
     def _route_specific_limit(self, scope) -> Optional[int]:
         """Return a per-route override for the current request, if any.
 
-        ``route_limits`` is built in :func:`lifespan` after FastAPI has
-        populated ``app.routes``.  The lookup is regex-based so static
-        paths like ``/v1/ai/upload-large`` and parameterised paths
-        handled by the same Route object both work.
+        The lookup is regex-based so static paths like
+        ``/v1/ai/upload-large`` and parameterised paths handled by the
+        same Route object both work.
         """
+        self._ensure_route_limits()
         if not self.route_limits:
             return None
         method = scope.get("method", "").upper()
+        raw_path = scope.get("raw_path") or scope.get("path", "").encode("latin-1")
         for (m, regex), limit in self.route_limits.items():
             if m != method:
                 continue
-            # ``route.path_regex`` matches against ``raw_path``.
-            if regex.match(scope.get("raw_path") or scope.get("path", "").encode("latin-1")):
+            if regex.match(raw_path):
                 return int(limit)
         return None
 
@@ -172,18 +198,11 @@ class MaxRequestBodySizeMiddleware:
         if self._is_bypassed(path):
             return await self.app(scope, receive, send)
 
-        # Pick up per-route limits fresh off ``app.state`` so that
-        # lifespan wiring (Issue #267) is honoured without rebuilding
-        # the middleware.  Falls back to the value constructed at
-        # init time only if ``app.state`` is unavailable (older
-        # tests that hand-craft a passthrough app).
-        app_state = getattr(self.app, "state", None)
-        if app_state is not None and hasattr(app_state, "route_body_limits"):
-            self.route_limits = app_state.route_body_limits
-
         # Resolve the effective cap for this route (Issue #267):
-        # per-route override declared via ``@with_body_size(N)`` takes
-        # precedence over the service-wide default.
+        # the per-route override declared via ``@with_body_size(N)``
+        # takes precedence over the service-wide default.  The
+        # override map is built lazily by walking ``self.app.routes``,
+        # so no app.state wiring is required.
         effective_limit = self._effective_limit(scope)
         if effective_limit is None:
             return await self.app(scope, receive, send)
@@ -492,26 +511,9 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # pragma: no cover - defensive
         logger.error("pii_decisions sweep wiring failed: %s", exc)
 
-    # ---- Issue #267: per-route body-size overrides -----------------------
-    # Walk the route table once and build a ``method -> regex -> limit``
-    # map for routes decorated with ``@with_body_size(N)``.  Stored on
-    # ``app.state`` so the middleware can read it without re-walking.
-    try:
-        route_body_limits: dict[tuple, int] = {}
-        for route in app.routes:
-            marker = getattr(getattr(route, "endpoint", None), "_max_body_size", None)
-            if not marker:
-                continue
-            for method in route.methods or set():
-                route_body_limits[(method.upper(), route.path_regex)] = int(marker)
-        app.state.route_body_limits = route_body_limits
-        if route_body_limits:
-            logger.info(
-                "per-route body-size limits wired for %d route(s)",
-                len(route_body_limits),
-            )
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.error("route_body_size wiring failed: %s", exc)
+    # Per-route body-size overrides (Issue #267) are resolved on demand
+    # by walking ``app.router.routes`` inside the middleware; no
+    # lifespan wiring is needed here.
 
     try:
         yield

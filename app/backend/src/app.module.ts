@@ -1,4 +1,4 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { Logger, MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 
 import { AppController } from './app.controller';
@@ -13,7 +13,6 @@ import { DeprecationInterceptor } from './common/interceptors/deprecation.interc
 import { HttpCacheInterceptor } from './common/interceptors/http-cache.interceptor';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
 import { RequestCorrelationMiddleware } from './middleware/request-correlation.middleware';
-import { LoggerService } from './logger/logger.service';
 
 /**
  * Top-level application module.
@@ -25,6 +24,15 @@ import { LoggerService } from './logger/logger.service';
  * graph reviewable (one diff for every new module, plenty of unit-test
  * surface) and means a unit test of any single module can stand it up
  * without pulling in the rest of the application (Issue #256).
+ *
+ * Note: this module does NOT inject {@link LoggerService} from the
+ * bespoke ``logger`` package.  The bespoke service lives behind a
+ * factory-consumer pair that used to be imported directly here, and
+ * removing the constructor dependency keeps the test surface clean
+ * (``Test.createTestingModule({imports: [AppModule]}).compile()`` now
+ * resolves cleanly without spinning up every module in the registry).
+ * The startup banner uses NestJS's built-in ``Logger`` which is
+ * available without DI and follows Nest conventions.
  */
 @Module({
   imports: [FeatureModuleRegistry.forRoot()],
@@ -44,15 +52,12 @@ import { LoggerService } from './logger/logger.service';
   ],
 })
 export class AppModule implements NestModule {
-  constructor(
-    private readonly loggerService: LoggerService,
-  ) {}
+  private readonly logger = new Logger(AppModule.name);
 
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestCorrelationMiddleware).forRoutes('*');
-    this.loggerService.log(
+    this.logger.log(
       'AppModule initialized with structured logging, correlation IDs, and rate limiting',
-      'AppModule',
     );
   }
 }

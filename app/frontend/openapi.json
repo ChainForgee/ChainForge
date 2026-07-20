@@ -1994,6 +1994,22 @@
         ]
       }
     },
+    "/api/v1/csp-report": {
+      "post": {
+        "description": "Endpoint to receive and log Content Security Policy violations.",
+        "operationId": "CspReportController_handleCspReport_v1",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Receive CSP violation reports",
+        "tags": [
+          "CSP"
+        ]
+      }
+    },
     "/api/v1/test-error/generic": {
       "get": {
         "operationId": "TestErrorController_getGenericError_v1",

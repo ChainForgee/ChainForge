@@ -5,6 +5,9 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import helmet, { HelmetOptions } from 'helmet';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 
+import { CspReportController } from './csp-report.controller';
+import { LoggerModule } from '../../logger/logger.module';
+
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:3000',
@@ -89,6 +92,7 @@ const buildHelmetOptions = (config: ConfigService): HelmetOptions => {
             objectSrc: ["'none'"],
             mediaSrc: ["'self'"],
             frameSrc: ["'none'"],
+            reportUri: '/api/v1/csp-report',
           },
         }
       : false,
@@ -313,5 +317,8 @@ export const createRateLimiter = (
  * If cookie-based session management or any browser-managed credentials are introduced 
  * in the future, CSRF protection middleware MUST be implemented.
  */
-@Module({})
+@Module({
+  imports: [LoggerModule],
+  controllers: [CspReportController],
+})
 export class SecurityModule {}

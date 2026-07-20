@@ -13,15 +13,15 @@ describe('AES Envelope Round-Trip (Property-Based Test)', () => {
     encryptionService = new EncryptionService(configService);
   });
 
-  it('should preserve checksum equality and correctly decrypt buffers across all evidence sizes (1 KB to 100 MB)', async () => {
+  it('should preserve checksum equality and correctly decrypt buffers across all evidence sizes (1 KB to 100 MB)', () => {
     // We generate a float/double between 0 and 1 using fast-check.
     // We map this value to a piecewise log-uniform distribution to bias the sizes towards smaller values (e.g. 90% < 1 MB)
     // while still ensuring that large values up to 100 MB are covered.
     // This allows us to run 1000 iterations in CI in just a few seconds.
-    await fc.assert(
-      fc.asyncProperty(
+    fc.assert(
+      fc.property(
         fc.double({ min: 0, max: 1, noNaN: true, noInfinity: true }),
-        async (d) => {
+        (d) => {
           let size: number;
           if (d < 0.1) {
             // 10% of tests are large (1 MB to 100 MB)

@@ -33,6 +33,19 @@ jobs:
         with:
           workspaces: "app/onchain"
 
+      - name: Enforce locked dependencies
+        run: cargo check --locked
+
+      - name: Ensure Cargo.lock is updated when Cargo.toml changes
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- app/onchain/Cargo.toml app/onchain/Cargo.lock)"
+          if echo "$changed_files" | grep -q '^app/onchain/Cargo.toml$' && ! echo "$changed_files" | grep -q '^app/onchain/Cargo.lock$'; then
+            echo "Cargo.toml changed without updating Cargo.lock."
+            exit 1
+          fi
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 

@@ -212,18 +212,12 @@ export class EvidenceService {
     const { limit, cursor } = pagination;
     const take = limit;
 
-    const query: Prisma.EvidenceQueueItemFindManyArgs = {
+    const items = await this.prisma.evidenceQueueItem.findMany({
       where: { ownerId },
       orderBy: { id: 'asc' },
       take: take + 1,
-    };
-
-    if (cursor) {
-      query.cursor = { id: cursor };
-      query.skip = 1;
-    }
-
-    const items = await this.prisma.evidenceQueueItem.findMany(query);
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
 
     const hasMore = items.length > take;
     const resultItems = hasMore ? items.slice(0, take) : items;

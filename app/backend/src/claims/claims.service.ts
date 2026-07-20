@@ -121,19 +121,13 @@ export class ClaimsService {
     const { limit, cursor } = pagination;
     const take = limit;
 
-    const query: Prisma.ClaimFindManyArgs = {
+    const claims = await this.prisma.claim.findMany({
       where: { deletedAt: null },
       include: { campaign: true },
       orderBy: { id: 'asc' },
       take: take + 1,
-    };
-
-    if (cursor) {
-      query.cursor = { id: cursor };
-      query.skip = 1;
-    }
-
-    const claims = await this.prisma.claim.findMany(query);
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
 
     const hasMore = claims.length > take;
     const items = hasMore ? claims.slice(0, take) : claims;

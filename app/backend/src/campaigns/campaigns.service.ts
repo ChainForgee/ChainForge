@@ -68,18 +68,12 @@ export class CampaignsService {
       ...(ngoId ? { ngoId } : {}),
     };
 
-    const query: Prisma.CampaignFindManyArgs = {
+    const campaigns = await this.prisma.campaign.findMany({
       where,
       orderBy: { id: 'asc' },
       take: take + 1,
-    };
-
-    if (cursor) {
-      query.cursor = { id: cursor };
-      query.skip = 1;
-    }
-
-    const campaigns = await this.prisma.campaign.findMany(query);
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
 
     const hasMore = campaigns.length > take;
     const items = hasMore ? campaigns.slice(0, take) : campaigns;

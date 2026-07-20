@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AppEmptyState } from '@/components/empty-state/AppEmptyState';
 import { ExportControls } from '@/components/dashboard/ExportControls';
@@ -13,6 +13,8 @@ import {
   getUserRole,
   getUserRoleLabel,
 } from '@/lib/user-role';
+import { LiveRegion } from '@/components/LiveRegion';
+import { getStatusTransitionMessage } from '@/lib/status-messages';
 import type { CampaignStatus } from '@/types/campaign';
 
 const statusStyles: Record<CampaignStatus, string> = {
@@ -51,7 +53,25 @@ export default function CampaignsPage() {
   const [budget, setBudget] = useState('');
   const [token, setToken] = useState('USDC');
   const [expiry, setExpiry] = useState('');
-  const [formMessage, setFormMessage] = useState<string | null>(null);
+  const [formMessage, setFormMessage] = useState<{
+    text: string;
+    kind: 'success' | 'error';
+  } | null>(null);
+
+  const previousCampaignsRef = useRef(campaigns);
+  const [announcement, setAnnouncement] = useState('');
+
+  useEffect(() => {
+    if (campaigns.length > 0 && previousCampaignsRef.current.length > 0) {
+      for (const campaign of campaigns) {
+        const prev = previousCampaignsRef.current.find(c => c.id === campaign.id);
+        if (prev && prev.status !== campaign.status) {
+          setAnnouncement(getStatusTransitionMessage('Campaign', prev.status, campaign.status));
+        }
+      }
+    }
+    previousCampaignsRef.current = campaigns;
+  }, [campaigns]);
 
   function updateParam(key: string, value: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -86,12 +106,15 @@ export default function CampaignsPage() {
     setBudget('15000');
     setToken('USDC');
     setExpiry('2026-12-31');
-    setFormMessage('Sample campaign values loaded. Review and create when ready.');
+    setFormMessage({
+      text: 'Sample campaign values loaded. Review and create when ready.',
+      kind: 'success',
+    });
   };
 
   if (!canManageCampaigns(userRole)) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8 dark:bg-gray-900">
+      <main className="min-h-screen bg-gray-50 p-8 dark:bg-gray-900">
         <div className="mx-auto max-w-lg rounded-xl border border-red-200 bg-white p-6 dark:border-red-800 dark:bg-gray-800">
           <h1 className="text-2xl font-semibold text-red-600">Access Denied</h1>
           <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">
@@ -99,14 +122,14 @@ export default function CampaignsPage() {
             <strong>{userRoleLabel}</strong>.
           </p>
         </div>
-      </div>
+      </main>
     );
   }
 
   const handleCreate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!name.trim() || !budget.trim()) {
-      setFormMessage('Name and budget are required.');
+      setFormMessage({ text: 'Name and budget are required.', kind: 'error' });
       return;
     }
 
@@ -126,9 +149,12 @@ export default function CampaignsPage() {
       setBudget('');
       setToken('USDC');
       setExpiry('');
-      setFormMessage('Campaign created successfully.');
+      setFormMessage({ text: 'Campaign created successfully.', kind: 'success' });
     } catch (err) {
-      setFormMessage((err as Error).message ?? 'Failed to create campaign.');
+      setFormMessage({
+        text: (err as Error).message ?? 'Failed to create campaign.',
+        kind: 'error',
+      });
     }
   };
 
@@ -150,6 +176,7 @@ export default function CampaignsPage() {
 
   return (
     <div className="min-h-screen bg-linear-to-b from-background to-gray-50 p-6 dark:to-gray-950">
+      <LiveRegion message={announcement} />
       <main className="container mx-auto space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-4xl font-bold">NGO Campaigns</h1>
@@ -160,8 +187,11 @@ export default function CampaignsPage() {
           <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <h2 className="mb-4 text-xl font-semibold">Create New Campaign</h2>
             {formMessage && (
-              <div className="mb-4 rounded-md border bg-gray-50 p-3 text-sm text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-                {formMessage}
+              <div
+                role={formMessage.kind === 'error' ? 'alert' : 'status'}
+                className="mb-4 rounded-md border bg-gray-50 p-3 text-sm text-gray-700 dark:bg-gray-800 dark:text-gray-200"
+              >
+                {formMessage.text}
               </div>
             )}
             <form onSubmit={handleCreate} className="space-y-3">

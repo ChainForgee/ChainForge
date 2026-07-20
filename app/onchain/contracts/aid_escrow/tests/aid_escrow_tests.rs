@@ -456,6 +456,91 @@ mod claim {
         let with_proof = t.client.try_claim_with_proof(&id, &claimant, &proof);
         assert_eq!(with_proof, Err(Ok(Error::InvalidProof)));
     }
+
+    #[test]
+    fn merkle_allowlist_claim_fails_after_root_expiry() {
+        let t = TestSetup::new();
+        let claimant = Address::generate(&t.env);
+        t.fund_contract(ONE_TOKEN);
+
+        // Single-leaf tree: root == leaf and proof is empty.
+        let root_hex = claimant_leaf_hex(&t.env, &claimant);
+
+        // Allowlist root expires 1000s in the future, while the package itself
+        // stays claimable for an hour.
+        let root_expires_at = t.now() + 1000;
+
+        let mut metadata = Map::new(&t.env);
+        metadata.set(
+            Symbol::new(&t.env, "merkle_root"),
+            soroban_sdk::String::from_str(&t.env, &root_hex),
+        );
+        metadata.set(
+            Symbol::new(&t.env, "merkle_root_expires_at"),
+            soroban_sdk::String::from_str(&t.env, &root_expires_at.to_string()),
+        );
+
+        let id = t.client.create_package(
+            &t.admin,
+            &779u64,
+            &Address::generate(&t.env),
+            &ONE_TOKEN,
+            &t.token,
+            &(t.now() + 3600),
+            &metadata,
+        );
+
+        let proof: Vec<soroban_sdk::String> = Vec::new(&t.env);
+
+        // Advance the ledger to the expiry boundary (merkle_root_expires_at == now).
+        t.advance_time(1000);
+        let expired = t.client.try_claim_with_proof(&id, &claimant, &proof);
+        assert_eq!(expired, Err(Ok(Error::AllowlistExpired)));
+
+        // Advancing further keeps the allowlist expired.
+        t.advance_time(500);
+        let still_expired = t.client.try_claim_with_proof(&id, &claimant, &proof);
+        assert_eq!(still_expired, Err(Ok(Error::AllowlistExpired)));
+    }
+
+    #[test]
+    fn merkle_allowlist_claim_succeeds_before_root_expiry() {
+        let t = TestSetup::new();
+        let claimant = Address::generate(&t.env);
+        t.fund_contract(ONE_TOKEN);
+
+        let root_hex = claimant_leaf_hex(&t.env, &claimant);
+        let root_expires_at = t.now() + 1000;
+
+        let mut metadata = Map::new(&t.env);
+        metadata.set(
+            Symbol::new(&t.env, "merkle_root"),
+            soroban_sdk::String::from_str(&t.env, &root_hex),
+        );
+        metadata.set(
+            Symbol::new(&t.env, "merkle_root_expires_at"),
+            soroban_sdk::String::from_str(&t.env, &root_expires_at.to_string()),
+        );
+
+        let id = t.client.create_package(
+            &t.admin,
+            &780u64,
+            &Address::generate(&t.env),
+            &ONE_TOKEN,
+            &t.token,
+            &(t.now() + 3600),
+            &metadata,
+        );
+
+        // Just before expiry the allowlist is still active and the claim works.
+        t.advance_time(999);
+        let proof: Vec<soroban_sdk::String> = Vec::new(&t.env);
+        let with_proof = t.client.try_claim_with_proof(&id, &claimant, &proof);
+        assert!(with_proof.is_ok());
+
+        let token_client = TokenClient::new(&t.env, &t.token);
+        assert_eq!(token_client.balance(&claimant), ONE_TOKEN);
+    }
 }
 
 // ===========================================================================
@@ -557,4 +642,28 @@ mod token_decimal_normalization {
         );
         assert!(result.is_ok());
     }
+}
+#[test]
+fn test_claim_with_proof_oversized_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // 1. Generate an oversized proof vector containing 33 elements (limit is 32)
+    let mut oversized_proof = Vec::new(&env);
+    for _ in 0..33 {
+        oversized_proof.push_back(soroban_sdk::String::from_str(&env, "a"));
+    }
+
+    // 2. Instantiate dummy variables for the invocation
+    let dummy_id = 1u64;
+    let dummy_claimant = Address::generate(&env);
+
+    // 3. Register the contract using the non-deprecated `.register` method
+    let contract_id = env.register(crate::AidEscrow, ());
+    let client = AidEscrowClient::new(&env, &contract_id);
+
+    // 4. Try the claim invocation and assert it rejects with our custom error
+    let result = client.try_claim_with_proof(&dummy_id, &dummy_claimant, &oversized_proof);
+
+    assert_eq!(result, Err(Ok(crate::Error::ProofTooLarge)));
 }

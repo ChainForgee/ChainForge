@@ -1,0 +1,46 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'app/frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'app/frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile --engine-strict=false
+
+      # Non-blocking until the pre-existing lint errors on main are fixed
+      # (tracked in docs/accessibility/audit-2026.md ticket backlog).
+      - name: Lint
+        continue-on-error: true
+        run: pnpm --filter chainforge-frontend run lint
+
+      - name: Type check
+        run: pnpm --filter chainforge-frontend run type-check
+
+      - name: Test (includes axe accessibility suite)
+        run: pnpm --filter chainforge-frontend run test

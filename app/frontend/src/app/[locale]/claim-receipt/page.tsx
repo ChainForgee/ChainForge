@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ClaimReceipt, ClaimReceiptData } from '@/components/ClaimReceipt';
 import { AlertCircle, Loader2 } from 'lucide-react';
+import { LiveRegion } from '@/components/LiveRegion';
+import { getStatusTransitionMessage } from '@/lib/status-messages';
 
 export default function ClaimReceiptPage() {
   const router = useRouter();
@@ -13,6 +15,16 @@ export default function ClaimReceiptPage() {
   const [claim, setClaim] = useState<ClaimReceiptData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  const previousClaimRef = React.useRef<ClaimReceiptData | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+
+  useEffect(() => {
+    if (previousClaimRef.current && claim && previousClaimRef.current.status !== claim.status) {
+      setAnnouncement(getStatusTransitionMessage('Claim', previousClaimRef.current.status, claim.status));
+    }
+    previousClaimRef.current = claim;
+  }, [claim]);
 
   useEffect(() => {
     if (!claimId) {
@@ -78,6 +90,7 @@ export default function ClaimReceiptPage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 py-8 px-4">
+      <LiveRegion message={announcement} />
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -85,7 +98,7 @@ export default function ClaimReceiptPage() {
             onClick={() => router.back()}
             className="text-blue-600 dark:text-blue-400 hover:underline mb-4 flex items-center gap-2"
           >
-            ← Back
+            <span aria-hidden="true">←</span> Back
           </button>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
             Claim Receipt
@@ -97,8 +110,15 @@ export default function ClaimReceiptPage() {
 
         {/* Loading State */}
         {loading && (
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-8 text-center">
-            <Loader2 className="inline-block animate-spin text-blue-600 dark:text-blue-400 mb-4" size={32} />
+          <div
+            role="status"
+            className="bg-white dark:bg-slate-800 rounded-lg shadow p-8 text-center"
+          >
+            <Loader2
+              aria-hidden="true"
+              className="inline-block animate-spin text-blue-600 dark:text-blue-400 mb-4"
+              size={32}
+            />
             <p className="text-slate-600 dark:text-slate-400">
               Loading your receipt…
             </p>
@@ -107,8 +127,15 @@ export default function ClaimReceiptPage() {
 
         {/* Error State */}
         {error && (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 flex gap-4">
-            <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0" size={24} />
+          <div
+            role="alert"
+            className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 flex gap-4"
+          >
+            <AlertCircle
+              aria-hidden="true"
+              className="text-red-600 dark:text-red-400 flex-shrink-0"
+              size={24}
+            />
             <div>
               <h2 className="font-semibold text-red-900 dark:text-red-100 mb-1">
                 Error

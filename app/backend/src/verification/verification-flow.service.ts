@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import {
   Injectable,
   BadRequestException,
@@ -243,7 +244,7 @@ export class VerificationFlowService {
   private generateCode(): string {
     const max = Math.pow(10, this.codeLength) - 1;
     const min = Math.pow(10, this.codeLength - 1);
-    const code = Math.floor(min + Math.random() * (max - min + 1));
+    const code = randomInt(min, max + 1);
     return String(code);
   }
 

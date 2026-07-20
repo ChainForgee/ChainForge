@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import request from 'supertest';
@@ -59,11 +59,29 @@ describe('Verification Lifecycle E2E', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+      prefix: 'v',
+    });
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
     await app.init();
 
     prismaService = moduleFixture.get<PrismaService>(PrismaService);
     validApiKey = process.env.API_KEY || 'test-api-key-123';
+
+    const apiKeyHash = require('crypto').createHash('sha256').update(validApiKey).digest('hex');
+    await prismaService.apiKey.upsert({
+      where: { keyHash: apiKeyHash },
+      update: { revokedAt: null },
+      create: {
+        key: validApiKey,
+        keyHash: apiKeyHash,
+        keyPreview: validApiKey.slice(0, 8),
+        role: 'admin',
+      },
+    });
 
     // Create a test campaign
     const campaign = await prismaService.campaign.create({
@@ -78,49 +96,47 @@ describe('Verification Lifecycle E2E', () => {
   });
 
   afterAll(async () => {
-    // Delete claims and related records
-    for (const claimId of createdClaimIds.reverse()) {
-      try {
-        await prismaService.auditLog.deleteMany({
-          where: { entityId: claimId, entity: 'Claim' },
-        });
-        await prismaService.verificationSession.deleteMany({
-          where: { claimId } as unknown as Prisma.VerificationSessionWhereInput,
-        });
-        await prismaService.claim.delete({ where: { id: claimId } });
-      } catch (_error) {
-        console.error(`Error cleaning up claim ${claimId}:`, _error);
-      }
-    }
-    // Then delete campaign
     if (testCampaignId) {
       try {
-        await prismaService.campaign.delete({ where: { id: testCampaignId } });
-      } catch (error) {
-        console.error(`Error cleaning up campaign ${testCampaignId}:`, error);
+        await prismaService.auditLog.deleteMany({
+          where: { campaignId: testCampaignId },
+        });
+        await prismaService.balanceLedger.deleteMany({
+          where: { campaignId: testCampaignId },
+        });
+        await prismaService.claim.deleteMany({
+          where: { campaignId: testCampaignId },
+        });
+        await prismaService.campaign.delete({
+          where: { id: testCampaignId },
+        });
+      } catch (_error) {
+        // Ignored
       }
     }
     await app.close();
   });
 
+  const base = '/api/v1/claims';
+
   describe('API Health & Security', () => {
     it('GET /health - should return 200 OK', async () => {
-      await request(app.getHttpServer()).get('/health').expect(200);
+      await request(app.getHttpServer()).get('/api/v1/health').expect(200);
       console.log('✅ Health check passed');
     });
 
     it('GET /claims - should reject missing API key', async () => {
-      await request(app.getHttpServer()).get('/claims').expect(401);
+      await request(app.getHttpServer()).get(base).expect(401);
       console.log('✅ API key protection works');
     });
 
     it('GET /claims - should accept valid API key', async () => {
       const response = await request(app.getHttpServer())
-        .get('/claims')
+        .get(base)
         .set('X-API-Key', validApiKey)
         .expect(200);
 
-      expect(Array.isArray(response.body)).toBe(true);
+      expect(Array.isArray(response.body.data.data)).toBe(true);
       console.log('✅ Valid API key accepted');
     });
   });
@@ -137,15 +153,16 @@ describe('Verification Lifecycle E2E', () => {
       };
 
       const response = await request(app.getHttpServer())
-        .post('/claims')
+        .post(base)
         .set('X-API-Key', validApiKey)
         .send(claimData)
         .expect(201);
 
-      expect(response.body).toHaveProperty('id');
-      expect(String(response.body.amount)).toBe(String(1000));
+      const body = response.body.data;
+      expect(body).toHaveProperty('id');
+      expect(String(body.amount)).toBe(String(1000));
 
-      createdClaimId = response.body.id;
+      createdClaimId = body.id;
       createdClaimIds.push(createdClaimId);
 
       // Verify database state
@@ -169,12 +186,12 @@ describe('Verification Lifecycle E2E', () => {
 
     it('GET /claims - should list claims', async () => {
       const response = await request(app.getHttpServer())
-        .get('/claims')
+        .get(base)
         .set('X-API-Key', validApiKey)
         .expect(200);
 
-      expect(Array.isArray(response.body)).toBe(true);
-      console.log(`✅ Retrieved ${response.body.length} claims`);
+      expect(Array.isArray(response.body.data.data)).toBe(true);
+      console.log(`✅ Retrieved ${response.body.data.data.length} claims`);
     });
   });
 
@@ -191,24 +208,25 @@ describe('Verification Lifecycle E2E', () => {
       };
 
       const claimResponse = await request(app.getHttpServer())
-        .post('/claims')
+        .post(base)
         .set('X-API-Key', validApiKey)
         .send(claimData)
         .expect(201);
 
-      testClaimId = claimResponse.body.id;
+      testClaimId = claimResponse.body.data.id;
       createdClaimIds.push(testClaimId);
       console.log(`✅ Test claim created: ${testClaimId}`);
 
       // Start verification
       const verifyResponse = await request(app.getHttpServer())
-        .post(`/claims/${testClaimId}/verify`)
+        .post(`${base}/${testClaimId}/verify`)
         .set('X-API-Key', validApiKey)
         .send({ method: 'humanitarian' })
-        .expect(201);
+        .expect(200);
 
-      expect(verifyResponse.body).toHaveProperty('id');
-      expect(verifyResponse.body.status).toBe('verified');
+      const verifyBody = verifyResponse.body.data;
+      expect(verifyBody).toHaveProperty('id');
+      expect(verifyBody.status).toBe('verified');
 
       // Verify database state after verification
       const dbClaim = await prismaService.claim.findUnique({
@@ -226,7 +244,7 @@ describe('Verification Lifecycle E2E', () => {
       expect(auditLog).toBeDefined();
 
       console.log(
-        `✅ Verification completed, claim status: ${verifyResponse.body.status}`,
+        `✅ Verification completed, claim status: ${verifyBody.status}`,
       );
     });
   });
@@ -236,7 +254,7 @@ describe('Verification Lifecycle E2E', () => {
       const nonExistentId = '00000000-0000-0000-0000-000000000000';
 
       await request(app.getHttpServer())
-        .post(`/claims/${nonExistentId}/verify`)
+        .post(`${base}/${nonExistentId}/verify`)
         .set('X-API-Key', validApiKey)
         .send({ method: 'humanitarian' })
         .expect(404);
@@ -246,7 +264,7 @@ describe('Verification Lifecycle E2E', () => {
 
     it('should reject invalid API key', async () => {
       await request(app.getHttpServer())
-        .get('/claims')
+        .get(base)
         .set('X-API-Key', 'invalid-key-12345')
         .expect(401);
 
@@ -263,8 +281,6 @@ describe('Verification Lifecycle E2E', () => {
 
   describe('Onchain Disbursement', () => {
     let disbursementClaimId: string;
-    let _disbursementPackageId: string;
-    let _transactionHash: string;
 
     it('should create and verify a claim for disbursement test', async () => {
       // Create claim
@@ -276,20 +292,20 @@ describe('Verification Lifecycle E2E', () => {
       };
 
       const claimResponse = await request(app.getHttpServer())
-        .post('/claims')
+        .post(base)
         .set('X-API-Key', validApiKey)
         .send(claimData)
         .expect(201);
 
-      disbursementClaimId = claimResponse.body.id;
+      disbursementClaimId = claimResponse.body.data.id;
       createdClaimIds.push(disbursementClaimId);
 
       // Verify the claim
       await request(app.getHttpServer())
-        .post(`/claims/${disbursementClaimId}/verify`)
+        .post(`${base}/${disbursementClaimId}/verify`)
         .set('X-API-Key', validApiKey)
         .send({ method: 'humanitarian' })
-        .expect(201);
+        .expect(200);
 
       console.log(
         `✅ Verified claim created for disbursement: ${disbursementClaimId}`,
@@ -297,48 +313,8 @@ describe('Verification Lifecycle E2E', () => {
     });
   });
 
-  describe('Verification Flow', () => {
-    let testClaimId: string;
-
-    it('should create a claim and start verification', async () => {
-      // Create claim
-      const claimData = {
-        campaignId: testCampaignId,
-        recipientRef: validStellarAddress,
-        tokenAddress: validTokenAddress,
-        amount: 500,
-      };
-
-      const claimResponse = await request(app.getHttpServer())
-        .post('/claims')
-        .set('X-API-Key', validApiKey)
-        .send(claimData)
-        .expect(201);
-
-      testClaimId = claimResponse.body.id;
-      createdClaimIds.push(testClaimId);
-      console.log(`✅ Test claim created: ${testClaimId}`);
-
-      // Start verification - the endpoint returns the updated claim, not a sessionId
-      const verifyResponse = await request(app.getHttpServer())
-        .post(`/claims/${testClaimId}/verify`)
-        .set('X-API-Key', validApiKey)
-        .send({ method: 'humanitarian' })
-        .expect(201);
-
-      // The response is the updated claim object
-      expect(verifyResponse.body).toHaveProperty('id');
-      expect(verifyResponse.body.status).toBe('verified');
-      console.log(
-        `✅ Verification completed, claim status: ${verifyResponse.body.status}`,
-      );
-    });
-  });
-
-  // ========== NEW TEST: Onchain Package Create ==========
   describe('Onchain Package Creation', () => {
     let verifiedClaimId: string;
-    let _aidPackageId: string;
 
     it('should create a verified claim for package testing', async () => {
       // Create a claim
@@ -350,20 +326,20 @@ describe('Verification Lifecycle E2E', () => {
       };
 
       const claimResponse = await request(app.getHttpServer())
-        .post('/claims')
+        .post(base)
         .set('X-API-Key', validApiKey)
         .send(claimData)
         .expect(201);
 
-      verifiedClaimId = claimResponse.body.id;
+      verifiedClaimId = claimResponse.body.data.id;
       createdClaimIds.push(verifiedClaimId);
 
       // Verify the claim
       await request(app.getHttpServer())
-        .post(`/claims/${verifiedClaimId}/verify`)
+        .post(`${base}/${verifiedClaimId}/verify`)
         .set('X-API-Key', validApiKey)
         .send({ method: 'humanitarian' })
-        .expect(201);
+        .expect(200);
 
       console.log(
         `✅ Verified claim created for package test: ${verifiedClaimId}`,

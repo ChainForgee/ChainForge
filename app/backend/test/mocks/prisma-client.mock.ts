@@ -19,7 +19,7 @@ export class PrismaClient {
         if (prop === '$disconnect') return jest.fn().mockResolvedValue(undefined);
         if (prop === '$on') return jest.fn();
         if (prop === '$transaction') {
-          return jest.fn(async (cb) => (typeof cb === 'function' ? cb(this) : cb));
+          return jest.fn((cb) => Promise.resolve(typeof cb === 'function' ? cb(this) : cb));
         }
         if (typeof prop === 'symbol' || prop === 'constructor' || prop === 'then') {
           return (target as any)[prop];

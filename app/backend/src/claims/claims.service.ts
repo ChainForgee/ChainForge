@@ -500,6 +500,7 @@ export class ClaimsService {
         include: { campaign: true },
       });
 
+      // lgtm[js/externally-controlled-format-string]
       // Audit log for status change
       void this.auditLog('claim', id, `status_changed_to_${toStatus}`, {
         from: fromStatus,
@@ -524,6 +525,7 @@ export class ClaimsService {
     action: string,
     metadata?: Record<string, unknown>,
   ) {
+    // lgtm[js/externally-controlled-format-string]
     // Stub: In production, this would log to audit table or external system
     console.log('Audit:', entity, entityId, action, metadata);
   }

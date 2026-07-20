@@ -4,16 +4,16 @@ Two angles:
 
 1. ``@with_body_size(...)`` decorator sets ``_max_body_size`` on the
    function so the size-limit middleware can pick it up by walking
-   ``self.app.routes`` at request time.
+   the ASGI chain for the layer that exposes ``.routes``.
 
 2. ``MaxRequestBodySizeMiddleware`` honours the per-route limit while
    preserving the global default for unmarked routes.
 
-The middleware reads ``self.app.routes`` — which is
-``fastapi.app.router.routes`` — because writing per-route limits via
-``app.state.route_body_limits`` does not survive the ASGI chain (each
-layer carries its own ``state`` object).  The decorator marker on the
-endpoint is the contract surfaces both in production and in tests.
+The middleware walks ``self.app`` recursively because Starlette
+auto-wraps the inner router with a ``ServerErrorMiddleware`` before
+user middlewares run, so a naive ``getattr(self.app, 'routes', None)``
+returns the empty attribute of the error wrapper.  See
+``main.MaxRequestBodySizeMiddleware._discover_route_table``.
 """
 
 from fastapi import FastAPI, Request
@@ -28,7 +28,6 @@ def _build_app(
     max_bytes: int,
     decorator=None,
     path: str = "/decorated",
-    extra_routes: list | None = None,
 ) -> FastAPI:
     """Stand up a small FastAPI app with a single POST route and the
     size-limit middleware attached.
@@ -36,7 +35,7 @@ def _build_app(
     ``decorator`` is the *decorator factory* returned by
     :func:`api.decorators.with_body_size` — it is applied to the route
     handler before ``add_api_route`` so the middleware sees the marker
-    via ``self.app.routes``.
+    via ``_discover_route_table``.
     """
     app = FastAPI()
     app.add_middleware(MaxRequestBodySizeMiddleware, max_bytes=max_bytes)
@@ -171,49 +170,63 @@ class TestRouteSpecificLimit:
 
 
 # ---------------------------------------------------------------------------
-# 3. The middleware reads ``self.app.routes`` (i.e. the inner Starlette
-#    router).  This unit check confirms the lazy walk produces the right
-#    regex table without any explicit app.state wiring.
+# 3. Direct unit checks against the middleware's chain-walker helper so
+# that future contributors don't accidentally regress the ASGI walk by
+# pointing self.app at the wrong layer again.
 # ---------------------------------------------------------------------------
 
 
 class TestMiddlewareRouteWalk:
-    def test_route_walk_collects_marker_from_self_app_routes(self):
-        async def handler(req: Request):
-            return {"ok": True}
+    """Probes the lazy route-walker used by ``MaxRequestBodySizeMiddleware``.
 
-        captured: dict = {}
+    The walker drills through ``self.app.app.app...`` until it finds a
+    Starlette-style layer with a ``.routes`` attribute.  These tests
+    verify both the discovery path (a wrapped downstream containing
+    a router) and the marker detection on the actual endpoint.
+    """
 
-        class _CapturingApp:
-            """ASGI app that records the middleware's ``self.app`` and
-            builds empty route tables so we can inspect the walk."""
+    def test_route_specific_limit_finds_marker_through_chain(self):
+        """Mirror a real ASGI chain: middleware → wrapper → routes.
 
-            def __init__(self):
-                self.routes = getattr(handler, "_max_body_size", None) and []
-
-        # Probe directly: construct the middleware and call its lazy
-        # walk helper with a synthetic Starlette-looking downstream
-        # carrying one route with the marker.
-        from main import MaxRequestBodySizeMiddleware
-
-        middleware = MaxRequestBodySizeMiddleware(
-            app=_CapturingApp(), max_bytes=1024
-        )
-        # Build a minimal route exposing .path_regex + .methods +
-        # .endpoint with `_max_body_size`.
+        Uses the same ASGI shape as Starlette (ServerErrorMiddleware,
+        then Router).  The handler on the route carries the
+        ``_max_body_size`` marker.
+        """
         import re
 
-        class _FakeRoute:
-            path = "/decorated"
-            path_regex = re.compile(r"^/decorated$")
-            methods = {"POST"}
-            endpoint = handler
+        @with_body_size(64 * 1024 * 1024)
+        async def decorated(req: Request):
+            return {"ok": True}
 
-        # Inject the synthetic route table onto the downstream app.
-        middleware.app.routes = [_FakeRoute()]  # type: ignore[attr-defined]
+        class _Inner:
+            def __init__(self):
+                self.routes = [
+                    type(
+                        "_R",
+                        (),
+                        {
+                            "path": "/decorated",
+                            "path_regex": re.compile(r"^/decorated$"),
+                            "methods": {"POST"},
+                            "endpoint": staticmethod(decorated),
+                        },
+                    )()
+                ]
+
+        class _Wrapper:
+            def __init__(self, inner):
+                self.app = inner  # noqa: A003 - prototype attribute
+
+        middleware = MaxRequestBodySizeMiddleware(
+            app=_Wrapper(_Inner()),
+            max_bytes=128,
+        )
         middleware._ensure_route_limits()
 
-        assert middleware.route_limits, "expected route_limits to be populated"
+        assert middleware.route_limits, (
+            "expected route_limits to contain the (POST, /decorated) override"
+            " — chain walk missed the inner Router"
+        )
         limit = middleware._route_specific_limit(
             {
                 "type": "http",
@@ -224,24 +237,62 @@ class TestMiddlewareRouteWalk:
         )
         assert limit == 64 * 1024 * 1024
 
-    def test_route_walk_handles_empty_marker(self):
-        # When the route table has no markers, the walk should leave
-        # the override map empty and fall back to the global cap.
-        from main import MaxRequestBodySizeMiddleware
+    def test_route_specific_limit_returns_none_when_no_marker(self):
+        """When no endpoint carries the marker, the walk still succeeds
+        (route_limits stays empty) and the per-route lookup returns None.
+        """
+        import re
 
-        class _NoMarkerRoute:
-            path = "/unmarked"
-            path_regex = __import__("re").compile(r"^/unmarked$")
-            methods = {"POST"}
+        async def plain(req: Request):
+            return {"ok": True}
 
-            class endpoint:
-                pass
+        class _Inner:
+            def __init__(self):
+                self.routes = [
+                    type(
+                        "_R",
+                        (),
+                        {
+                            "path": "/plain",
+                            "path_regex": re.compile(r"^/plain$"),
+                            "methods": {"POST"},
+                            "endpoint": staticmethod(plain),
+                        },
+                    )()
+                ]
 
-        class _Downstream:
-            routes = [_NoMarkerRoute()]
+        class _Wrapper:
+            def __init__(self, inner):
+                self.app = inner  # noqa: A003
 
         middleware = MaxRequestBodySizeMiddleware(
-            app=_Downstream(), max_bytes=128
+            app=_Wrapper(_Inner()),
+            max_bytes=128,
+        )
+        middleware._ensure_route_limits()
+        assert middleware.route_limits == {}
+        assert middleware._route_specific_limit(
+            {
+                "type": "http",
+                "method": "POST",
+                "raw_path": b"/plain",
+                "path": "/plain",
+            }
+        ) is None
+
+    def test_route_specific_limit_handles_chain_with_no_routes(self):
+        """Defensive: a chain where none of the layers expose ``.routes``
+        should return ``None`` cleanly (global default applies) without
+        looping forever.  Bounded by the 8-hop guard in the walker.
+        """
+
+        class _Endless:
+            def __init__(self):
+                self.app = self  # self-cycle; walker must terminate
+
+        middleware = MaxRequestBodySizeMiddleware(
+            app=_Endless(),
+            max_bytes=128,
         )
         middleware._ensure_route_limits()
         assert middleware.route_limits == {}

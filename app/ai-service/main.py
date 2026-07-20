@@ -113,16 +113,23 @@ class MaxRequestBodySizeMiddleware:
         self._route_limits_built: bool = False
 
     def _ensure_route_limits(self) -> None:
-        """Walk ``self.app.routes`` for endpoints marked with
-        ``_max_body_size``.  This is cached for the lifetime of the
-        middleware instance — the route table is fixed at app build
-        time and does not change at request time.
+        """Walk the ASGI chain for the layer that exposes ``.routes`` and
+        collect every endpoint marked with ``_max_body_size``.  This is
+        cached for the lifetime of the middleware instance — the route
+        table is fixed at app build time and does not change at request
+        time.
+
+        Starlette auto-wraps the inner router with ``ServerErrorMiddleware``
+        before user middlewares, so a naive ``getattr(self.app, 'routes', ...)``
+        only sees the error middleware (which has no ``.routes``) and the
+        per-route marker is silently dropped.  Crawl the chain via the
+        ``.app`` attribute until a layer with a route table is found.
         """
         if self._route_limits_built:
             return
         self._route_limits_built = True
         limits: dict = {}
-        for route in getattr(self.app, "routes", None) or []:
+        for route in self._discover_route_table() or []:
             endpoint = getattr(route, "endpoint", None)
             marker = getattr(endpoint, "_max_body_size", None)
             if not marker:
@@ -134,6 +141,25 @@ class MaxRequestBodySizeMiddleware:
             for method in route.methods or set():
                 limits[(method.upper(), regex)] = int(marker)
         self.route_limits = limits
+
+    def _discover_route_table(self) -> list:
+        """Walk the ASGI chain for the first layer that exposes ``.routes``.
+
+        Bounded (max 8 hops) so a pathological middleware chain can't
+        livelock.  Returns ``[]`` if no layer surfaces a route table —
+        in which case there are simply no per-route overrides to apply.
+        """
+        current: object = self.app
+        seen: set = set()
+        for _ in range(8):
+            if current is None or id(current) in seen:
+                return []
+            seen.add(id(current))
+            routes = getattr(current, "routes", None)
+            if routes:
+                return list(routes)
+            current = getattr(current, "app", None)
+        return []  # pragma: no cover - defensive
 
     def _route_specific_limit(self, scope) -> Optional[int]:
         """Return a per-route override for the current request, if any.

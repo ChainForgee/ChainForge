@@ -4,6 +4,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { FeatureModuleRegistry } from './feature-modules.registry';
+import { LoggerModule } from './logger/logger.module';
 
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ApiKeyGuard } from './common/guards/api-key.guard';
@@ -35,7 +36,14 @@ import { RequestCorrelationMiddleware } from './middleware/request-correlation.m
  * available without DI and follows Nest conventions.
  */
 @Module({
-  imports: [FeatureModuleRegistry.forRoot()],
+  // LoggerModule is wired as a *direct* sibling import alongside
+  // ``FeatureModuleRegistry`` because the bespoke ``AllExceptionsFilter``
+  // (registered below as APP_FILTER) injects ``LoggerService`` and the
+  // DI container needs the LoggerModule export chain to be reachable
+  // from AppModule's scope.  Nested-DynamicModule imports in NestJS do
+  // not always hoist exported providers reliably across test fixtures,
+  // so an explicit sibling import is the most defensive approach.
+  imports: [LoggerModule, FeatureModuleRegistry.forRoot()],
   controllers: [AppController],
   providers: [
     AppService,

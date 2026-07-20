@@ -7,6 +7,7 @@ Main entry point for the AI service layer.
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
+import asyncio
 import json
 import logging
 
@@ -101,6 +102,49 @@ class MaxRequestBodySizeMiddleware:
             "/openapi.json",
         ]
         self.bypass_prefixes = tuple({*(default_bypass), *(bypass_prefixes or [])})
+        # Per-route overrides populated by ``lifespan``.  Keyed by
+        # ``(method_upper, path_regex_compiled)``; missing entries fall
+        # back to ``self.max_bytes``.  Lazy attribute so older tests
+        # that construct the middleware with a passthrough ``app``
+        # mock don't have to set it.
+        self.route_limits: dict = {}
+
+    def _route_specific_limit(self, scope) -> Optional[int]:
+        """Return a per-route override for the current request, if any.
+
+        ``route_limits`` is built in :func:`lifespan` after FastAPI has
+        populated ``app.routes``.  The lookup is regex-based so static
+        paths like ``/v1/ai/upload-large`` and parameterised paths
+        handled by the same Route object both work.
+        """
+        if not self.route_limits:
+            return None
+        method = scope.get("method", "").upper()
+        for (m, regex), limit in self.route_limits.items():
+            if m != method:
+                continue
+            # ``route.path_regex`` matches against ``raw_path``.
+            if regex.match(scope.get("raw_path") or scope.get("path", "").encode("latin-1")):
+                return int(limit)
+        return None
+
+    def _effective_limit(self, scope) -> Optional[int]:
+        """Combine the global cap with a per-route override (if any).
+
+        A route decorated with ``@with_body_size(N)`` declares its own
+        ceiling — that limit takes precedence over the service-wide
+        default.  Routes without a marker fall back to the global
+        ``max_bytes``.  This matches the acceptance criterion in
+        Issue #267 ("honours route-specific value when present") both
+        for routes that want a *larger* cap (e.g. genomic uploads) and
+        for routes that want a *smaller* cap (e.g. low-MB OCR images).
+        """
+        override = self._route_specific_limit(scope)
+        if override is not None:
+            # A non-positive override on a specific route means "no
+            # limit for this route" — useful for telemetry endpoints.
+            return override if override > 0 else None
+        return self.max_bytes
 
     def _is_bypassed(self, path: str) -> bool:
         if path in self.bypass_prefixes:
@@ -121,11 +165,27 @@ class MaxRequestBodySizeMiddleware:
             return await self.app(scope, receive, send)
 
         # No limit configured or no body expected — no-op.
-        if self.max_bytes is None or scope["method"] not in self.METHODS_WITH_BODY:
+        if scope["method"] not in self.METHODS_WITH_BODY:
             return await self.app(scope, receive, send)
 
         path = scope.get("path", "")
         if self._is_bypassed(path):
+            return await self.app(scope, receive, send)
+
+        # Pick up per-route limits fresh off ``app.state`` so that
+        # lifespan wiring (Issue #267) is honoured without rebuilding
+        # the middleware.  Falls back to the value constructed at
+        # init time only if ``app.state`` is unavailable (older
+        # tests that hand-craft a passthrough app).
+        app_state = getattr(self.app, "state", None)
+        if app_state is not None and hasattr(app_state, "route_body_limits"):
+            self.route_limits = app_state.route_body_limits
+
+        # Resolve the effective cap for this route (Issue #267):
+        # per-route override declared via ``@with_body_size(N)`` takes
+        # precedence over the service-wide default.
+        effective_limit = self._effective_limit(scope)
+        if effective_limit is None:
             return await self.app(scope, receive, send)
 
         declared_content_length = None
@@ -141,16 +201,18 @@ class MaxRequestBodySizeMiddleware:
                     break
             if content_length_hdr is not None:
                 declared_content_length = int(content_length_hdr)
-                if declared_content_length > self.max_bytes:
+                if declared_content_length > effective_limit:
                     await self._log_rejection(
                         scope,
                         declared_or_observed=declared_content_length,
                         reason="declared_size",
+                        limit=effective_limit,
                     )
                     return await self._send_413(
                         send,
                         observed=declared_content_length,
                         reason="declared_size",
+                        limit=effective_limit,
                     )
         except (ValueError, TypeError):
             # Malformed Content-Length — fall through to stream counting.
@@ -170,12 +232,13 @@ class MaxRequestBodySizeMiddleware:
                 if declared_content_length is not None and total > declared_content_length:
                     raise HTTPBodyLengthMismatch(declared_content_length, total)
 
-                # Check if the streamed bytes exceed the maximum allowed size limit
-                if total > self.max_bytes:
+                # Check if the streamed bytes exceed the effective limit
+                # (either per-route or service-wide).
+                if total > effective_limit:
                     # Signal the exception so that the outer __call__ can
                     # emit a 413 even if the application has already started
                     # producing a response.
-                    raise HTTPBodyTooLarge(self.max_bytes, total)
+                    raise HTTPBodyTooLarge(effective_limit, total)
             return message
 
         try:
@@ -185,11 +248,13 @@ class MaxRequestBodySizeMiddleware:
                 scope,
                 declared_or_observed=exc.observed,
                 reason="streamed_size",
+                limit=exc.limit,
             )
             await self._send_413(
                 send,
                 observed=exc.observed,
                 reason="streamed_size",
+                limit=exc.limit,
             )
         except HTTPBodyLengthMismatch as exc:
             await self._log_rejection(
@@ -203,22 +268,25 @@ class MaxRequestBodySizeMiddleware:
                 observed=exc.observed,
             )
 
-    async def _send_413(self, send, observed: int, reason: str):
+    async def _send_413(self, send, observed: int, reason: str, limit: Optional[int] = None):
         """Emit a JSON 413 response using the project's ErrorEnvelope shape.
 
         ``reason`` distinguishes eager (Content-Length) rejection from
         streamed rejection; the message is worded accordingly so the
-        response is precise and not misleading.
+        response is precise and not misleading.  ``limit`` overrides the
+        instance default so per-route overrides (Issue #267) are
+        reflected in the error text.
         """
+        effective = limit if limit is not None else self.max_bytes
         if reason == "declared_size":
             msg = (
                 f"Declared request body of {observed} bytes exceeds the "
-                f"maximum allowed size of {self.max_bytes} bytes."
+                f"maximum allowed size of {effective} bytes."
             )
         else:
             msg = (
                 f"Request body streamed so far ({observed} bytes) exceeds "
-                f"the maximum allowed size of {self.max_bytes} bytes."
+                f"the maximum allowed size of {effective} bytes."
             )
 
         envelope = ErrorEnvelope(
@@ -274,22 +342,25 @@ class MaxRequestBodySizeMiddleware:
         scope,
         declared_or_observed: int,
         reason: str,
+        limit: Optional[int] = None,
     ) -> None:
         """Emit a structured warning so operators can correlate DoS attempts.
 
         ``reason`` is either ``"declared_size"`` (Content-Length spoofing)
         or ``"streamed_size"`` (chunked transfer smuggling), or ``"length_mismatch"``,
-        so logs differentiate between attack classes.
+        so logs differentiate between attack classes.  ``limit`` is the
+        effective cap (global or per-route) for the request.
         """
         client = scope.get("client")
         client_str = f"{client[0]}:{client[1]}" if client else "unknown"
+        effective = limit if limit is not None else self.max_bytes
         logger.warning(
             "request body rejected: method=%s path=%s bytes=%d limit=%d "
             "client=%s reason=%s",
             scope.get("method"),
             scope.get("path"),
             declared_or_observed,
-            self.max_bytes,
+            effective,
             client_str,
             reason,
         )
@@ -370,8 +441,88 @@ async def lifespan(app: FastAPI):
     logger.info(f"Redis configured: {settings.redis_url}")
     logger.info(f"Backend webhook URL: {settings.backend_webhook_url}")
 
-    yield
-    logger.info("Shutting down ChainForge AI Service...")
+    # ---- Issue #274: PII decisions retention sweeper --------------------
+    # Initialize the audit store + kick off a periodic sweep so audit rows
+    # never live past ``pii_decisions_retention_days``.  The task is
+    # cancelled cleanly on shutdown so uvicorn reloads don't leak loops.
+    sweep_task: Optional[asyncio.Task] = None
+    try:
+        import asyncio as _asyncio
+        from persistence.pii_decisions import PIIDecisionStore
+
+        if settings.pii_decisions_enabled:
+            store = PIIDecisionStore(settings.pii_decisions_db_path)
+            store.initialize()
+            # Sweep once at boot to absorb any rows left over from a
+            # previous deployment that aged past the new retention.
+            try:
+                removed = store.sweep_expired_decisions()
+                if removed:
+                    logger.info(
+                        "pii_decisions startup sweep removed %d expired rows",
+                        removed,
+                    )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.error("initial pii_decisions sweep failed: %s", exc)
+
+            interval = max(60, int(settings.pii_decisions_sweep_interval_seconds))
+
+            async def _sweep_loop() -> None:
+                while True:
+                    try:
+                        await _asyncio.sleep(interval)
+                        store = PIIDecisionStore(settings.pii_decisions_db_path)
+                        removed = store.sweep_expired_decisions()
+                        if removed:
+                            logger.info(
+                                "pii_decisions sweep removed %d expired rows",
+                                removed,
+                            )
+                    except _asyncio.CancelledError:
+                        raise
+                    except Exception as exc:  # pragma: no cover - defensive
+                        logger.error("periodic pii_decisions sweep failed: %s", exc)
+
+            sweep_task = _asyncio.create_task(_sweep_loop(), name="pii-decisions-sweep")
+            logger.info(
+                "pii_decisions sweep loop started (interval=%ss, retention=%sd)",
+                interval,
+                settings.pii_decisions_retention_days,
+            )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("pii_decisions sweep wiring failed: %s", exc)
+
+    # ---- Issue #267: per-route body-size overrides -----------------------
+    # Walk the route table once and build a ``method -> regex -> limit``
+    # map for routes decorated with ``@with_body_size(N)``.  Stored on
+    # ``app.state`` so the middleware can read it without re-walking.
+    try:
+        route_body_limits: dict[tuple, int] = {}
+        for route in app.routes:
+            marker = getattr(getattr(route, "endpoint", None), "_max_body_size", None)
+            if not marker:
+                continue
+            for method in route.methods or set():
+                route_body_limits[(method.upper(), route.path_regex)] = int(marker)
+        app.state.route_body_limits = route_body_limits
+        if route_body_limits:
+            logger.info(
+                "per-route body-size limits wired for %d route(s)",
+                len(route_body_limits),
+            )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("route_body_size wiring failed: %s", exc)
+
+    try:
+        yield
+    finally:
+        if sweep_task is not None:
+            sweep_task.cancel()
+            try:
+                await sweep_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        logger.info("Shutting down ChainForge AI Service...")
 
 
 app = FastAPI(

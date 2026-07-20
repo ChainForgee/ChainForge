@@ -1,9 +1,13 @@
+import { createHash } from 'node:crypto';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import request from 'supertest';
-import { Prisma } from '@prisma/client';
 
 // Mock external services
 jest.mock('@stellar/stellar-sdk', () => ({
@@ -71,7 +75,9 @@ describe('Verification Lifecycle E2E', () => {
     prismaService = moduleFixture.get<PrismaService>(PrismaService);
     validApiKey = process.env.API_KEY || 'test-api-key-123';
 
-    const mockAuthDigest = require('crypto').createHash('sha256').update(validApiKey).digest('hex');
+    const mockAuthDigest = createHash('sha256')
+      .update(validApiKey)
+      .digest('hex');
     await prismaService.apiKey.upsert({
       where: { keyHash: mockAuthDigest },
       update: { revokedAt: null },
@@ -110,7 +116,7 @@ describe('Verification Lifecycle E2E', () => {
         await prismaService.campaign.delete({
           where: { id: testCampaignId },
         });
-      } catch (_error) {
+      } catch {
         // Ignored
       }
     }

@@ -13,5 +13,8 @@ export * from './decorators/deprecated.decorator';
 // Interceptors
 export * from './interceptors/deprecation.interceptor';
 
+// Streaming
+export * from './streaming';
+
 // Budget
 export * from './budget/budget.service';

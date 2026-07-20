@@ -1,249 +1,144 @@
-'use client';
+import React from 'react';
+import { AlertCircle } from 'lucide-react';
+import { ClaimReceipt, ClaimReceiptData } from '@/components/ClaimReceipt';
+import { apiClient } from '@/lib/api-client';
+import { BackButton } from './BackButton';
 
-import React, { useMemo } from 'react';
-import { Share2, Download, Copy, Check, ExternalLink } from 'lucide-react';
-import { useTheme } from 'next-themes';
-import { format } from 'date-fns';
-import { buildExplorerUrl } from '../lib/explorer';
+// This page is backed by /api/v1/claims/{id}/receipt, which is per-recipient
+// data guarded by the backend's HttpCacheInterceptor (private, must-revalidate —
+// see #32). It must be rendered fresh on every request rather than statically
+// optimized, so the server always re-validates against that header instead of
+// serving a stale Next.js Data/Full Route Cache entry.
+export const dynamic = 'force-dynamic';
 
-export interface ClaimReceiptData {
-  claimId: string;
-  packageId: string;
-  status:
-    | 'requested'
-    | 'verified'
-    | 'approved'
-    | 'disbursed'
-    | 'archived'
-    | 'cancelled';
-  amount: number;
-  tokenAddress?: string;
-  transactionHash?: string;
-  contractAddress?: string;
-  timestamp: string;
-  recipientRef?: string;
+interface PageProps {
+  searchParams: Promise<{ claimId?: string }>;
 }
 
-interface ClaimReceiptProps {
-  claim: ClaimReceiptData;
-  onShare?: () => Promise<void>;
-  compact?: boolean;
-}
-
-export const ClaimReceipt: React.FC<ClaimReceiptProps> = ({
-  claim,
-  onShare,
-  compact = false,
-}) => {
-  const { theme } = useTheme();
-  const [copied, setCopied] = React.useState(false);
-  const [sharing, setSharing] = React.useState(false);
-
-  const statusColors = {
-    requested: 'bg-yellow-50 border-yellow-200 text-yellow-900',
-    verified: 'bg-blue-50 border-blue-200 text-blue-900',
-    approved: 'bg-green-50 border-green-200 text-green-900',
-    disbursed: 'bg-emerald-50 border-emerald-200 text-emerald-900',
-    archived: 'bg-gray-50 border-gray-200 text-gray-900',
-    cancelled: 'bg-red-50 border-red-200 text-red-900',
-  };
-
-  const statusBadgeColors = {
-    requested: 'bg-yellow-100 text-yellow-800',
-    verified: 'bg-blue-100 text-blue-800',
-    approved: 'bg-green-100 text-green-800',
-    disbursed: 'bg-emerald-100 text-emerald-800',
-    archived: 'bg-gray-100 text-gray-800',
-    cancelled: 'bg-red-100 text-red-800',
-  };
-
-  const formattedDate = useMemo(() => {
-    try {
-      return format(new Date(claim.timestamp), 'MMM dd, yyyy • HH:mm:ss');
-    } catch {
-      return claim.timestamp;
-    }
-  }, [claim.timestamp]);
-
-  const receiptText = useMemo(() => {
-    return `Claim Receipt
-Claim ID: ${claim.claimId}
-Package ID: ${claim.packageId}
-Status: ${claim.status.toUpperCase()}
-Amount: ${claim.amount} tokens
-Date: ${formattedDate}
-${claim.tokenAddress ? `Token Address: ${claim.tokenAddress}` : ''}
-${claim.contractAddress ? `Contract Address: ${claim.contractAddress}` : ''}
-${claim.transactionHash ? `Transaction Hash: ${claim.transactionHash}` : ''}`.trim();
-  }, [claim, formattedDate]);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(receiptText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy receipt', err);
-    }
-  };
-
-  const handleShare = async () => {
-    if (onShare) {
-      setSharing(true);
-      try {
-        await onShare();
-      } catch (err) {
-        console.error('Failed to share receipt', err);
-      } finally {
-        setSharing(false);
-      }
-    } else if (navigator.share) {
-      setSharing(true);
-      try {
-        await navigator.share({
-          title: 'Claim Receipt',
-          text: receiptText,
-        });
-      } catch (err) {
-        if (err instanceof Error && err.name !== 'AbortError') {
-          console.error('Share failed:', err);
-        }
-      } finally {
-        setSharing(false);
-      }
-    }
-  };
-
-  const handleDownload = () => {
-    const element = document.createElement('a');
-    const file = new Blob([receiptText], { type: 'text/plain' });
-    element.href = URL.createObjectURL(file);
-    element.download = `claim-receipt-${claim.claimId}.txt`;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
-  };
-
-  if (compact) {
-    return (
-      <div className={`p-3 border rounded-lg ${statusColors[claim.status]}`}>
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold">{claim.packageId}</p>
-            <p className="text-xs opacity-75">{formattedDate}</p>
-          </div>
-          <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusBadgeColors[claim.status]}`}>
-            {claim.status}
-          </span>
-        </div>
-      </div>
-    );
-  }
-
+function ErrorState({ message }: { message: string }) {
   return (
-    <div className={`border-2 rounded-lg p-6 ${statusColors[claim.status]}`}>
-      {/* Header */}
-      <div className="mb-4 pb-4 border-b border-current border-opacity-20">
-        <h2 className="text-2xl font-bold mb-1">Claim Receipt</h2>
-        <p className="text-sm opacity-75">Proof of claim completion</p>
-      </div>
-
-      {/* Details Grid */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div>
-          <p className="text-xs font-semibold opacity-75 mb-1">CLAIM ID</p>
-          <p className="font-mono text-sm break-all">{claim.claimId}</p>
-        </div>
-        <div>
-          <p className="text-xs font-semibold opacity-75 mb-1">PACKAGE ID</p>
-          <p className="font-mono text-sm break-all">{claim.packageId}</p>
-        </div>
-        <div>
-          <p className="text-xs font-semibold opacity-75 mb-1">STATUS</p>
-          <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${statusBadgeColors[claim.status]}`}>
-            {claim.status}
-          </span>
-        </div>
-        <div>
-          <p className="text-xs font-semibold opacity-75 mb-1">AMOUNT</p>
-          <p className="font-semibold">{claim.amount} tokens</p>
-        </div>
-        <div className="col-span-2">
-          <p className="text-xs font-semibold opacity-75 mb-1">TIMESTAMP</p>
-          <p className="text-sm">{formattedDate}</p>
-        </div>
-        {claim.tokenAddress && (
-          <div className="col-span-2">
-            <p className="text-xs font-semibold opacity-75 mb-1">TOKEN ADDRESS</p>
-            
-              href={buildExplorerUrl('address', claim.tokenAddress)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-mono text-xs break-all text-blue-600 hover:underline dark:text-blue-400 flex items-center gap-1 inline-flex"
-            >
-              {claim.tokenAddress}
-              <ExternalLink size={12} className="shrink-0" />
-            </a>
-          </div>
-        )}
-        {claim.contractAddress && (
-          <div className="col-span-2">
-            <p className="text-xs font-semibold opacity-75 mb-1">CONTRACT ADDRESS</p>
-            
-              href={buildExplorerUrl('contract', claim.contractAddress)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-mono text-xs break-all text-blue-600 hover:underline dark:text-blue-400 flex items-center gap-1 inline-flex"
-            >
-              {claim.contractAddress}
-              <ExternalLink size={12} className="shrink-0" />
-            </a>
-          </div>
-        )}
-        {claim.transactionHash && (
-          <div className="col-span-2">
-            <p className="text-xs font-semibold opacity-75 mb-1">TRANSACTION HASH</p>
-            
-              href={buildExplorerUrl('tx', claim.transactionHash)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-mono text-xs break-all text-blue-600 hover:underline dark:text-blue-400 flex items-center gap-1 inline-flex"
-            >
-              {claim.transactionHash}
-              <ExternalLink size={12} className="shrink-0" />
-            </a>
-          </div>
-        )}
-      </div>
-
-      {/* Action Buttons */}
-      <div className="grid grid-cols-3 gap-2">
-        <button
-          onClick={handleShare}
-          disabled={sharing}
-          className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-current bg-opacity-10 hover:bg-opacity-20 transition-colors disabled:opacity-50 text-sm font-medium"
-          title="Share receipt"
-        >
-          <Share2 size={16} />
-          <span className="hidden sm:inline">Share</span>
-        </button>
-        <button
-          onClick={handleCopy}
-          className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-current bg-opacity-10 hover:bg-opacity-20 transition-colors text-sm font-medium"
-          title="Copy to clipboard"
-        >
-          {copied ? <Check size={16} /> : <Copy size={16} />}
-          <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
-        </button>
-        <button
-          onClick={handleDownload}
-          className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-current bg-opacity-10 hover:bg-opacity-20 transition-colors text-sm font-medium"
-          title="Download receipt"
-        >
-          <Download size={16} />
-          <span className="hidden sm:inline">Download</span>
-        </button>
+    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 flex gap-4">
+      <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0" size={24} />
+      <div>
+        <h2 className="font-semibold text-red-900 dark:text-red-100 mb-1">
+          Error
+        </h2>
+        <p className="text-red-800 dark:text-red-200">{message}</p>
       </div>
     </div>
   );
-};
+}
+
+async function loadClaim(
+  claimId: string,
+): Promise<{ claim: ClaimReceiptData | null; error: string | null }> {
+  try {
+    const { data, error, response } = await apiClient.GET(
+      '/api/v1/claims/{id}/receipt',
+      {
+        params: { path: { id: claimId } },
+        // Never let the Next.js server-side data cache serve a stale receipt —
+        // the backend's own Cache-Control header (private, must-revalidate)
+        // governs revalidation once it reaches the browser/CDN.
+        cache: 'no-store',
+      } as Parameters<typeof apiClient.GET>[1],
+    );
+
+    if (error || !data) {
+      if (response?.status === 404) {
+        return { claim: null, error: 'Claim receipt not found' };
+      }
+      return { claim: null, error: 'Failed to load claim receipt' };
+    }
+
+    return { claim: data as ClaimReceiptData, error: null };
+  } catch (err) {
+    return {
+      claim: null,
+      error: err instanceof Error ? err.message : 'Failed to load claim receipt',
+    };
+  }
+}
+
+export default async function ClaimReceiptPage({ searchParams }: PageProps) {
+  const { claimId } = await searchParams;
+
+  const { claim, error } = claimId
+    ? await loadClaim(claimId)
+    : { claim: null, error: 'Claim ID not provided' };
+
+  return (
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 py-8 px-4">
+      <div className="max-w-2xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <BackButton />
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
+            Claim Receipt
+          </h1>
+          <p className="text-slate-600 dark:text-slate-400">
+            View and share your claim proof
+          </p>
+        </div>
+
+        {/* Error State */}
+        {error && <ErrorState message={error} />}
+
+        {/* Receipt Card */}
+        {!error && claim && (
+          <div className="space-y-4">
+            <ClaimReceipt claim={claim} />
+
+            {/* Additional Information */}
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-6 border border-slate-200 dark:border-slate-700">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+                What is this receipt?
+              </h2>
+              <ul className="space-y-3 text-slate-700 dark:text-slate-300">
+                <li className="flex gap-3">
+                  <span className="text-blue-600 dark:text-blue-400 font-bold">•</span>
+                  <span>
+                    This receipt proves that your claim has been processed and
+                    completed on the ChainForge platform.
+                  </span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="text-blue-600 dark:text-blue-400 font-bold">•</span>
+                  <span>
+                    You can share this receipt with other parties as proof of
+                    the transaction.
+                  </span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="text-blue-600 dark:text-blue-400 font-bold">•</span>
+                  <span>
+                    Keep this receipt for your records. The data cannot be
+                    altered after generation.
+                  </span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="text-blue-600 dark:text-blue-400 font-bold">•</span>
+                  <span>
+                    You can download, copy, or share this receipt using the
+                    buttons above.
+                  </span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Support Information */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-6 border border-blue-200 dark:border-blue-800">
+              <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                Need help?
+              </h3>
+              <p className="text-blue-800 dark:text-blue-200 text-sm">
+                If you have questions about your claim or receipt, please
+                contact our support team at hello@chainforge.dev
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}

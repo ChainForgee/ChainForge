@@ -41,13 +41,13 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or missing API key');
     }
 
-    const apiKeyHash = createHash('sha256').update(apiKey).digest('hex');
+    const lookupDigest = createHash('sha256').update(apiKey).digest('hex');
 
     // Primary path: look up the key in the database (hashed preferred; legacy plaintext supported)
     const record = await this.prisma.apiKey.findFirst({
       where: {
         revokedAt: null,
-        OR: [{ keyHash: apiKeyHash }, { key: apiKey }],
+        OR: [{ keyHash: lookupDigest }, { key: apiKey }],
       },
     });
 

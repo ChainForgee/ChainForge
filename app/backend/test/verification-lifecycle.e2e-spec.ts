@@ -71,13 +71,13 @@ describe('Verification Lifecycle E2E', () => {
     prismaService = moduleFixture.get<PrismaService>(PrismaService);
     validApiKey = process.env.API_KEY || 'test-api-key-123';
 
-    const apiKeyHash = require('crypto').createHash('sha256').update(validApiKey).digest('hex');
+    const mockAuthDigest = require('crypto').createHash('sha256').update(validApiKey).digest('hex');
     await prismaService.apiKey.upsert({
-      where: { keyHash: apiKeyHash },
+      where: { keyHash: mockAuthDigest },
       update: { revokedAt: null },
       create: {
         key: validApiKey,
-        keyHash: apiKeyHash,
+        keyHash: mockAuthDigest,
         keyPreview: validApiKey.slice(0, 8),
         role: 'admin',
       },

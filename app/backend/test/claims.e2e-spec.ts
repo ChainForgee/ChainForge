@@ -39,7 +39,7 @@ describe('Claims (e2e)', () => {
 
   const base = '/api/v1/claims';
   const testApiKey = 'e2e-test-key-0002';
-  const testApiKeyHash =
+  const mockAuthDigest =
     '0ddfd56b80b5f63187c748e910d5ae632669a46f221170bdcbb04989e44d107a';
   const authHeader = { 'X-Api-Key': testApiKey } as Record<string, string>;
 
@@ -79,11 +79,11 @@ describe('Claims (e2e)', () => {
     encryptionService = app.get(EncryptionService);
 
     await prisma.apiKey.upsert({
-      where: { keyHash: testApiKeyHash },
+      where: { keyHash: mockAuthDigest },
       update: { revokedAt: null },
       create: {
         key: testApiKey,
-        keyHash: testApiKeyHash,
+        keyHash: mockAuthDigest,
         keyPreview: testApiKey.slice(0, 8),
         role: 'admin',
       },
@@ -97,7 +97,7 @@ describe('Claims (e2e)', () => {
   });
 
   afterAll(async () => {
-    await prisma.apiKey.deleteMany({ where: { keyHash: testApiKeyHash } });
+    await prisma.apiKey.deleteMany({ where: { keyHash: mockAuthDigest } });
     await app.close();
   });
 

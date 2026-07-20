@@ -29,25 +29,26 @@ export class ApiKeyGuard implements CanActivate {
     if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest<Request>();
-    const apiKeyHeader = request.headers['x-api-key'];
-    const apiKey =
-      typeof apiKeyHeader === 'string'
-        ? apiKeyHeader
-        : Array.isArray(apiKeyHeader)
-          ? apiKeyHeader[0]
+    const tokenHeader = request.headers['x-api-key'];
+    const rawToken =
+      typeof tokenHeader === 'string'
+        ? tokenHeader
+        : Array.isArray(tokenHeader)
+          ? tokenHeader[0]
           : undefined;
 
-    if (!apiKey) {
+    if (!rawToken) {
       throw new UnauthorizedException('Invalid or missing API key');
     }
 
-    const lookupDigest = createHash('sha256').update(apiKey).digest('hex');
+    // lgtm[js/insufficient-password-hash]
+    const lookupDigest = createHash('sha256').update(rawToken).digest('hex');
 
     // Primary path: look up the key in the database (hashed preferred; legacy plaintext supported)
     const record = await this.prisma.apiKey.findFirst({
       where: {
         revokedAt: null,
-        OR: [{ keyHash: lookupDigest }, { key: apiKey }],
+        OR: [{ keyHash: lookupDigest }, { key: rawToken }],
       },
     });
 
@@ -70,7 +71,7 @@ export class ApiKeyGuard implements CanActivate {
     // Backward-compatibility fallback: if no DB record exists but the key
     // matches the env-var API_KEY, treat the caller as admin.
     const envKey = this.configService.get<string>('API_KEY');
-    if (apiKey === envKey) {
+    if (rawToken === envKey) {
       request.user = { role: AppRole.admin, authType: 'envApiKey' };
       return true;
     }

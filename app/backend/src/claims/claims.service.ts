@@ -525,7 +525,7 @@ export class ClaimsService {
     metadata?: Record<string, unknown>,
   ) {
     // Stub: In production, this would log to audit table or external system
-    console.log(`Audit: ${entity} ${entityId} ${action}`, metadata);
+    console.log('Audit:', entity, entityId, action, metadata);
   }
 
   /**

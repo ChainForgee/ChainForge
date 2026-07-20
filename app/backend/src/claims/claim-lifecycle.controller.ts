@@ -241,7 +241,12 @@ export class ClaimLifecycleController {
     @Request() req: ExpressRequest,
   ) {
     const authorId = req.user?.apiKeyId || req.user?.authType || 'system';
-    const result = await this.internalNotesService.createNote('claim', id, authorId, dto);
+    const result = await this.internalNotesService.createNote(
+      'claim',
+      id,
+      authorId,
+      dto,
+    );
     return ApiResponseDto.ok(result, 'Note added successfully');
   }
 
@@ -260,7 +265,10 @@ export class ClaimLifecycleController {
     description: 'Access denied - staff role required.',
   })
   async getNotes(@Param('id') id: string) {
-    const result = await this.internalNotesService.findNotesByEntity('claim', id);
+    const result = await this.internalNotesService.findNotesByEntity(
+      'claim',
+      id,
+    );
     return ApiResponseDto.ok(result, 'Notes retrieved successfully');
   }
 

@@ -13,8 +13,12 @@ export function getEnvCandidates(): string[] {
   // If __dirname is inside src/common/utils (which it is for this file),
   // we go up 3 levels to reach the parent of src/dist.
   // Otherwise, we default to 1 level up.
-  const isNested = __dirname.includes(join('common', 'utils')) || __dirname.replace(/\\/g, '/').includes('common/utils');
-  const relativeParent = isNested ? join(__dirname, '..', '..', '..') : join(__dirname, '..');
+  const isNested =
+    __dirname.includes(join('common', 'utils')) ||
+    __dirname.replace(/\\/g, '/').includes('common/utils');
+  const relativeParent = isNested
+    ? join(__dirname, '..', '..', '..')
+    : join(__dirname, '..');
 
   return [
     join(process.cwd(), '.env'),
@@ -28,7 +32,7 @@ export function getEnvCandidates(): string[] {
  * Precedence Rule:
  * - dotenv variables ALWAYS win over existing OS environment variables (override: true).
  * - The first existing candidate file in the list takes highest precedence.
- * 
+ *
  * Both main.ts and app.module.ts call this helper.
  * Returns the candidate files list to be used by NestJS ConfigModule.
  */

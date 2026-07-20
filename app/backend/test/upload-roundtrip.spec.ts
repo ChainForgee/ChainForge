@@ -21,7 +21,7 @@ describe('AES Envelope Round-Trip (Property-Based Test)', () => {
     fc.assert(
       fc.property(
         fc.double({ min: 0, max: 1, noNaN: true, noInfinity: true }),
-        (d) => {
+        d => {
           let size: number;
           if (d < 0.1) {
             // 10% of tests are large (1 MB to 100 MB)
@@ -67,9 +67,9 @@ describe('AES Envelope Round-Trip (Property-Based Test)', () => {
 
           expect(decryptedChecksum).toBe(originalChecksum);
           expect(decrypted.equals(originalBuffer)).toBe(true);
-        }
+        },
       ),
-      { numRuns: 1000 }
+      { numRuns: 1000 },
     );
   }, 35000); // 35 second timeout to be safe, though it should complete in under 5 seconds
 });

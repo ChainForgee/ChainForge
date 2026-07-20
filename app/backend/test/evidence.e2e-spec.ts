@@ -1,8 +1,11 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from 'src/app.module';
-import { ApiKeyGuard } from 'src/common/guards/api-key.guard';
 import { PrismaService } from 'src/prisma/prisma.service';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -19,7 +22,11 @@ describe('Evidence Queue (e2e)', () => {
   async function waitForUpload(id: string): Promise<any> {
     for (let i = 0; i < 50; i++) {
       const item = await prisma.evidenceQueueItem.findUnique({ where: { id } });
-      if (item && item.status !== EvidenceStatus.pending && item.status !== EvidenceStatus.uploading) {
+      if (
+        item &&
+        item.status !== EvidenceStatus.pending &&
+        item.status !== EvidenceStatus.uploading
+      ) {
         return item;
       }
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -163,7 +170,10 @@ describe('Evidence Queue (e2e)', () => {
   it('POST /evidence/upload creates near-duplicate reference when fingerprint matches', async () => {
     const fileContent = Buffer.from('near duplicate test');
     const orgId = 'org-456';
-    const fingerprint = crypto.createHash('sha256').update(fileContent).digest('hex');
+    const fingerprint = crypto
+      .createHash('sha256')
+      .update(fileContent)
+      .digest('hex');
 
     // Manually insert original with a DIFFERENT fileHash
     const originalItem = await prisma.evidenceQueueItem.create({
@@ -389,7 +399,10 @@ describe('Evidence Queue (e2e)', () => {
   it('Near-duplicate detection preserves auditability with metadata', async () => {
     const fileContent = Buffer.from('audit test content');
     const orgId = 'org-789';
-    const fingerprint = crypto.createHash('sha256').update(fileContent).digest('hex');
+    const fingerprint = crypto
+      .createHash('sha256')
+      .update(fileContent)
+      .digest('hex');
 
     // Manually insert original with a DIFFERENT fileHash
     const originalItem = await prisma.evidenceQueueItem.create({

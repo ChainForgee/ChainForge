@@ -17,7 +17,10 @@ describe('AuditLog Partitioning (e2e)', () => {
       await app.init();
       prisma = app.get(PrismaService);
     } catch (error) {
-      console.log('Skipping e2e test: PrismaModule initialization failed (likely missing database connection/dependencies)', error);
+      console.log(
+        'Skipping e2e test: PrismaModule initialization failed (likely missing database connection/dependencies)',
+        error,
+      );
     }
   });
 
@@ -25,7 +28,9 @@ describe('AuditLog Partitioning (e2e)', () => {
     if (prisma && prisma.isConnected()) {
       await prisma.auditLog.deleteMany({
         where: {
-          actorId: { in: ['test-actor-current', 'test-actor-prior', 'test-actor-old'] },
+          actorId: {
+            in: ['test-actor-current', 'test-actor-prior', 'test-actor-old'],
+          },
         },
       });
     }
@@ -37,16 +42,18 @@ describe('AuditLog Partitioning (e2e)', () => {
   it('asserts that AUDIT rows from prior months still query and write with the same Prisma client API', async () => {
     // If the database is not connected (e.g. running in unit test env without live PG/SQLite), skip
     if (!app || !prisma || !prisma.isConnected()) {
-      console.log('Skipping e2e partitioning test: database or AppModule not initialized');
+      console.log(
+        'Skipping e2e partitioning test: database or AppModule not initialized',
+      );
       return;
     }
 
     const currentMonthDate = new Date();
-    
+
     // Create dates for prior months
     const oneMonthAgoDate = new Date();
     oneMonthAgoDate.setMonth(oneMonthAgoDate.getMonth() - 1);
-    
+
     const twoMonthsAgoDate = new Date();
     twoMonthsAgoDate.setMonth(twoMonthsAgoDate.getMonth() - 2);
 
@@ -88,7 +95,9 @@ describe('AuditLog Partitioning (e2e)', () => {
     // 2. Query logs from prior months using the standard findMany API
     const allLogs = await prisma.auditLog.findMany({
       where: {
-        actorId: { in: ['test-actor-current', 'test-actor-prior', 'test-actor-old'] },
+        actorId: {
+          in: ['test-actor-current', 'test-actor-prior', 'test-actor-old'],
+        },
       },
       orderBy: {
         timestamp: 'asc',

@@ -1,5 +1,9 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import request, { Response as SupertestResponse } from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -102,11 +106,12 @@ describe('Pagination (e2e)', () => {
     });
 
     // 3. Query without parameters (should use default 25 limit)
-    const defaultRes = await request(app.getHttpServer())
-      .get(base)
-      .expect(200);
+    const defaultRes = await request(app.getHttpServer()).get(base).expect(200);
 
-    const defaultBody = bodyAs<{ data: ClaimResponseDto[]; nextCursor: string | null }>(defaultRes);
+    const defaultBody = bodyAs<{
+      data: ClaimResponseDto[];
+      nextCursor: string | null;
+    }>(defaultRes);
     expect(defaultBody.success).toBe(true);
     expect(defaultBody.data.data).toHaveLength(25);
     expect(defaultBody.data.nextCursor).toBeDefined();
@@ -117,7 +122,10 @@ describe('Pagination (e2e)', () => {
       .get(`${base}?limit=200`)
       .expect(200);
 
-    const cappedBody = bodyAs<{ data: ClaimResponseDto[]; nextCursor: string | null }>(cappedRes);
+    const cappedBody = bodyAs<{
+      data: ClaimResponseDto[];
+      nextCursor: string | null;
+    }>(cappedRes);
     expect(cappedBody.success).toBe(true);
     expect(cappedBody.data.data).toHaveLength(100);
     expect(cappedBody.data.nextCursor).toBeDefined();
@@ -128,7 +136,10 @@ describe('Pagination (e2e)', () => {
       .get(`${base}?limit=10`)
       .expect(200);
 
-    const page1Body = bodyAs<{ data: ClaimResponseDto[]; nextCursor: string | null }>(page1Res);
+    const page1Body = bodyAs<{
+      data: ClaimResponseDto[];
+      nextCursor: string | null;
+    }>(page1Res);
     expect(page1Body.success).toBe(true);
     expect(page1Body.data.data).toHaveLength(10);
     const cursor = page1Body.data.nextCursor;
@@ -140,14 +151,17 @@ describe('Pagination (e2e)', () => {
       .get(`${base}?limit=10&cursor=${cursor}`)
       .expect(200);
 
-    const page2Body = bodyAs<{ data: ClaimResponseDto[]; nextCursor: string | null }>(page2Res);
+    const page2Body = bodyAs<{
+      data: ClaimResponseDto[];
+      nextCursor: string | null;
+    }>(page2Res);
     expect(page2Body.success).toBe(true);
     expect(page2Body.data.data).toHaveLength(10);
-    
+
     // The items returned on page 2 should be different from page 1
     const page1Ids = page1Body.data.data.map(item => item.id);
     const page2Ids = page2Body.data.data.map(item => item.id);
-    
+
     // No intersection between page 1 and page 2
     for (const id of page2Ids) {
       expect(page1Ids).not.toContain(id);

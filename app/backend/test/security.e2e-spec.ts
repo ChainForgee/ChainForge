@@ -278,7 +278,9 @@ describe('Security (e2e)', () => {
       const appInstance = await createTestApp({ enableDocs: false });
       const redisService = appInstance.get(RedisService);
       const testMockRedis = new RedisMock();
-      jest.spyOn(redisService, 'getOrThrow').mockReturnValue(testMockRedis as any);
+      jest
+        .spyOn(redisService, 'getOrThrow')
+        .mockReturnValue(testMockRedis as any);
 
       const server = appInstance.getHttpServer();
       const results: any[] = [];
@@ -310,7 +312,9 @@ describe('Security (e2e)', () => {
         throw new Error('Redis connection down');
       });
 
-      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+      const warnSpy = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => {});
 
       const server = appInstance.getHttpServer();
       const response = await request(server).get('/api/v1/');

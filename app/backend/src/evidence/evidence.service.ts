@@ -205,7 +205,10 @@ export class EvidenceService {
     }
   }
 
-  async findQueue(ownerId: string, pagination: PaginationParams = { limit: 25 }) {
+  async findQueue(
+    ownerId: string,
+    pagination: PaginationParams = { limit: 25 },
+  ) {
     const { limit, cursor } = pagination;
     const take = limit;
 

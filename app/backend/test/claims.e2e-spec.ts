@@ -1,11 +1,13 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import request, { Response as SupertestResponse } from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { EncryptionService } from 'src/common/encryption/encryption.service';
-import { BudgetService } from 'src/common/budget/budget.service';
-import { ApiKeyGuard } from 'src/common/guards/api-key.guard';
 import { App } from 'supertest/types';
 
 const STELLAR_ADDR = 'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN';
@@ -22,7 +24,11 @@ type ClaimDto = {
 
 type ClaimResponseDto = ClaimDto;
 
-function bodyAs<T>(res: SupertestResponse): { success: boolean; data: T; message?: string } {
+function bodyAs<T>(res: SupertestResponse): {
+  success: boolean;
+  data: T;
+  message?: string;
+} {
   return res.body as { success: boolean; data: T; message?: string };
 }
 
@@ -33,7 +39,8 @@ describe('Claims (e2e)', () => {
 
   const base = '/api/v1/claims';
   const testApiKey = 'e2e-test-key-0002';
-  const testApiKeyHash = '0ddfd56b80b5f63187c748e910d5ae632669a46f221170bdcbb04989e44d107a';
+  const testApiKeyHash =
+    '0ddfd56b80b5f63187c748e910d5ae632669a46f221170bdcbb04989e44d107a';
   const authHeader = { 'X-Api-Key': testApiKey } as Record<string, string>;
 
   beforeAll(async () => {
@@ -60,7 +67,11 @@ describe('Claims (e2e)', () => {
     });
 
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
     );
 
     await app.init();
@@ -107,7 +118,7 @@ describe('Claims (e2e)', () => {
       })
       .expect(201);
 
-    const body = (res.body as any).data as ClaimDto;
+    const body = res.body.data as ClaimDto;
     expect(body.status).toBe('requested');
     expect(body.amount).toBe(100.5);
     expect(body.recipientRef).toBe('recipient-123');
@@ -119,7 +130,12 @@ describe('Claims (e2e)', () => {
     await request(app.getHttpServer())
       .post(base)
       .set(authHeader)
-      .send({ campaignId: 'invalid-id', amount: 100.5, recipientRef: 'recipient-123', tokenAddress: STELLAR_ADDR })
+      .send({
+        campaignId: 'invalid-id',
+        amount: 100.5,
+        recipientRef: 'recipient-123',
+        tokenAddress: STELLAR_ADDR,
+      })
       .expect(404);
   });
 
@@ -136,7 +152,10 @@ describe('Claims (e2e)', () => {
     });
 
     const res = await request(app.getHttpServer()).get(base).expect(200);
-    const body = bodyAs<{ data: ClaimResponseDto[]; nextCursor: string | null }>(res);
+    const body = bodyAs<{
+      data: ClaimResponseDto[];
+      nextCursor: string | null;
+    }>(res);
     expect(body.success).toBe(true);
     expect(body.data.data).toHaveLength(1);
   });
@@ -146,7 +165,11 @@ describe('Claims (e2e)', () => {
       data: { name: 'Test Campaign', budget: 1000 },
     });
     const claim = await prisma.claim.create({
-      data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1') },
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+      },
     });
 
     const res = await request(app.getHttpServer())
@@ -154,7 +177,7 @@ describe('Claims (e2e)', () => {
       .set(authHeader)
       .expect(200);
 
-    const body = (res.body as any).data as ClaimDto;
+    const body = res.body.data as ClaimDto;
     expect(body.id).toBe(claim.id);
     expect(body.status).toBe('requested');
   });
@@ -164,7 +187,11 @@ describe('Claims (e2e)', () => {
       data: { name: 'Test Campaign', budget: 1000 },
     });
     const claim = await prisma.claim.create({
-      data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1') },
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+      },
     });
 
     const res = await request(app.getHttpServer())
@@ -172,7 +199,7 @@ describe('Claims (e2e)', () => {
       .set(authHeader)
       .expect(200);
 
-    const body = (res.body as any).data as ClaimDto;
+    const body = res.body.data as ClaimDto;
     expect(body.status).toBe('verified');
   });
 
@@ -181,7 +208,12 @@ describe('Claims (e2e)', () => {
       data: { name: 'Test Campaign', budget: 1000 },
     });
     const claim = await prisma.claim.create({
-      data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1'), status: 'verified' },
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+        status: 'verified',
+      },
     });
 
     const res = await request(app.getHttpServer())
@@ -189,7 +221,7 @@ describe('Claims (e2e)', () => {
       .set(authHeader)
       .expect(200);
 
-    const body = (res.body as any).data as ClaimDto;
+    const body = res.body.data as ClaimDto;
     expect(body.status).toBe('approved');
   });
 
@@ -197,14 +229,21 @@ describe('Claims (e2e)', () => {
     const campaign = await prisma.campaign.create({
       data: { name: 'Test Campaign', budget: 1000 },
     });
-    const claim = await prisma.claim.create({ data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1'), status: 'approved' } });
+    const claim = await prisma.claim.create({
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+        status: 'approved',
+      },
+    });
 
     const res = await request(app.getHttpServer())
       .post(`${base}/${claim.id}/disburse`)
       .set(authHeader)
       .expect(200);
 
-    const body = (res.body as any).data as ClaimDto;
+    const body = res.body.data as ClaimDto;
     expect(body.status).toBe('disbursed');
   });
 
@@ -212,14 +251,21 @@ describe('Claims (e2e)', () => {
     const campaign = await prisma.campaign.create({
       data: { name: 'Test Campaign', budget: 1000 },
     });
-    const claim = await prisma.claim.create({ data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1'), status: 'disbursed' } });
+    const claim = await prisma.claim.create({
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+        status: 'disbursed',
+      },
+    });
 
     const res = await request(app.getHttpServer())
       .patch(`${base}/${claim.id}/archive`)
       .set(authHeader)
       .expect(200);
 
-    const body = (res.body as any).data as ClaimDto;
+    const body = res.body.data as ClaimDto;
     expect(body.status).toBe('archived');
   });
 
@@ -227,7 +273,14 @@ describe('Claims (e2e)', () => {
     const campaign = await prisma.campaign.create({
       data: { name: 'Test Campaign', budget: 1000 },
     });
-    const claim = await prisma.claim.create({ data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('recipient-1'), status: 'verified' } });
+    const claim = await prisma.claim.create({
+      data: {
+        campaignId: campaign.id,
+        amount: 50,
+        recipientRef: encryptionService.encrypt('recipient-1'),
+        status: 'verified',
+      },
+    });
 
     await request(app.getHttpServer())
       .post(`${base}/${claim.id}/verify`)
@@ -248,7 +301,8 @@ describe('Claims (e2e)', () => {
         campaignId: campaign.id,
         amount: 60,
         recipientRef: 'recipient-1',
-        tokenAddress: 'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN',
+        tokenAddress:
+          'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN',
       })
       .expect(201);
 
@@ -265,13 +319,14 @@ describe('Claims (e2e)', () => {
     });
 
     // Second claim that would exceed the cap
-    const res = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post(base)
       .send({
         campaignId: campaign.id,
         amount: 50, // 60 + 50 = 110 > 100
         recipientRef: 'recipient-2',
-        tokenAddress: 'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN',
+        tokenAddress:
+          'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN',
       })
       .expect(400);
   });
@@ -282,7 +337,11 @@ describe('Claims (e2e)', () => {
         data: { name: 'Cache Campaign', budget: 1000 },
       });
       await prisma.claim.create({
-        data: { campaignId: campaign.id, amount: 50, recipientRef: encryptionService.encrypt('cache-test') },
+        data: {
+          campaignId: campaign.id,
+          amount: 50,
+          recipientRef: encryptionService.encrypt('cache-test'),
+        },
       });
 
       const res = await request(app.getHttpServer())
@@ -301,7 +360,11 @@ describe('Claims (e2e)', () => {
         data: { name: '304 Campaign', budget: 1000 },
       });
       await prisma.claim.create({
-        data: { campaignId: campaign.id, amount: 25, recipientRef: encryptionService.encrypt('304-test') },
+        data: {
+          campaignId: campaign.id,
+          amount: 25,
+          recipientRef: encryptionService.encrypt('304-test'),
+        },
       });
 
       const res1 = await request(app.getHttpServer())

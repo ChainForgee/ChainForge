@@ -1,4 +1,4 @@
-import { DynamicModule, Module, Provider } from '@nestjs/common';
+import { DynamicModule, Inject, Module, Provider } from '@nestjs/common';
 
 const mockQueue = {
   add: jest.fn().mockResolvedValue({ id: 'mock-job-id' }),
@@ -12,7 +12,7 @@ const mockQueue = {
 
 @Module({})
 export class BullModule {
-  static forRoot(options: any): DynamicModule {
+  static forRoot(_options: any): DynamicModule {
     return {
       module: BullModule,
       providers: [],
@@ -20,7 +20,7 @@ export class BullModule {
     };
   }
 
-  static forRootAsync(options: any): DynamicModule {
+  static forRootAsync(_options: any): DynamicModule {
     return {
       module: BullModule,
       providers: [],
@@ -61,7 +61,6 @@ export class BullModule {
 export function InjectQueue(name: string) {
   return (target: any, key: string | symbol, index: number) => {
     const token = getQueueToken(name);
-    const Inject = require('@nestjs/common').Inject;
     Inject(token)(target, key, index);
   };
 }
@@ -70,14 +69,18 @@ export function getQueueToken(name: string): string {
   return `BullQueue_${name}`;
 }
 
-export function Processor(name?: string) {
-  return (target: any) => {};
+export function Processor(_name?: string) {
+  return (_target: any) => {};
 }
 
 export class WorkerHost {
-  async process(job: any): Promise<any> {}
+  async process(_job: any): Promise<any> {}
 }
 
-export function OnWorkerEvent(event: string) {
-  return (target: any, key: string | symbol, descriptor: PropertyDescriptor) => {};
+export function OnWorkerEvent(_event: string) {
+  return (
+    _target: any,
+    _key: string | symbol,
+    _descriptor: PropertyDescriptor,
+  ) => {};
 }

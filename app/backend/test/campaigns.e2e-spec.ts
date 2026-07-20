@@ -1,9 +1,12 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import request, { Response as SupertestResponse } from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { ApiKeyGuard } from 'src/common/guards/api-key.guard';
 import { App } from 'supertest/types';
 jest.setTimeout(30000);
 type ApiResponse<T> = {
@@ -29,7 +32,8 @@ describe('Campaigns (e2e)', () => {
 
   const base = '/api/v1/campaigns';
   const testApiKey = 'e2e-test-key-0001';
-  const testApiKeyHash = '7cd155083be719224524695fc6e61cf3747b99dd3f6260e392f1b3b69577dcd9';
+  const testApiKeyHash =
+    '7cd155083be719224524695fc6e61cf3747b99dd3f6260e392f1b3b69577dcd9';
   const authHeader = { 'X-Api-Key': testApiKey } as Record<string, string>;
 
   beforeAll(async () => {
@@ -47,7 +51,6 @@ describe('Campaigns (e2e)', () => {
       defaultVersion: '1',
       prefix: 'v',
     });
-
 
     app.useGlobalPipes(
       new ValidationPipe({
@@ -165,7 +168,10 @@ describe('Campaigns (e2e)', () => {
       .set(authHeader)
       .expect(200);
 
-    const body = bodyAs<{ data: CampaignResponseDto[]; nextCursor: string | null }>(res);
+    const body = bodyAs<{
+      data: CampaignResponseDto[];
+      nextCursor: string | null;
+    }>(res);
 
     expect(body.success).toBe(true);
     expect(Array.isArray(body.data.data)).toBe(true);

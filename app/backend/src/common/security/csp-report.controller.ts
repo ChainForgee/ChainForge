@@ -14,14 +14,13 @@ export class CspReportController {
   @Version(API_VERSIONS.V1)
   @ApiOperation({
     summary: 'Receive CSP violation reports',
-    description: 'Endpoint to receive and log Content Security Policy violations.',
+    description:
+      'Endpoint to receive and log Content Security Policy violations.',
   })
   handleCspReport(@Body() report: any) {
-    this.loggerService.warn(
-      'CSP violation reported',
-      'CspReportController',
-      { cspReport: report },
-    );
+    this.loggerService.warn('CSP violation reported', 'CspReportController', {
+      cspReport: report,
+    });
 
     return { status: 'ok' };
   }

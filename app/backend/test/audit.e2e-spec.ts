@@ -1,5 +1,9 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import {
+  INestApplication,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import request from 'supertest';
@@ -11,7 +15,8 @@ describe('Audit (e2e)', () => {
 
   const base = '/api/v1/audit';
   const testApiKey = 'e2e-test-key-0003';
-  const testApiKeyHash = 'b4b40ca8559ecd4e296d5b0007eeab955dd480259c25a19d88bb4ef0cfb2c0bb';
+  const testApiKeyHash =
+    'b4b40ca8559ecd4e296d5b0007eeab955dd480259c25a19d88bb4ef0cfb2c0bb';
   const authHeader = { 'X-Api-Key': testApiKey } as Record<string, string>;
 
   beforeAll(async () => {

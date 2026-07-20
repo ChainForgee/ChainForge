@@ -27,13 +27,17 @@ export interface PaginationParams {
 }
 
 export class PaginatedResult<T> {
-  @ApiProperty({ type: [Object], description: 'The array of records for the current page.' })
+  @ApiProperty({
+    type: [Object],
+    description: 'The array of records for the current page.',
+  })
   data!: T[];
 
   @ApiPropertyOptional({
     type: String,
     nullable: true,
-    description: 'Cursor to retrieve the next page of results, or null if there is no next page.',
+    description:
+      'Cursor to retrieve the next page of results, or null if there is no next page.',
   })
   nextCursor?: string | null;
 }
@@ -47,7 +51,10 @@ export function PaginationDefaults(options: PaginationDefaultsOptions = {}) {
   const maxLimit = options.max ?? 100;
 
   return applyDecorators(
-    SetMetadata(PAGINATION_DEFAULTS_KEY, { default: defaultLimit, max: maxLimit }),
+    SetMetadata(PAGINATION_DEFAULTS_KEY, {
+      default: defaultLimit,
+      max: maxLimit,
+    }),
     ApiQuery({
       name: 'limit',
       required: false,
@@ -76,7 +83,9 @@ export const Pagination = createParamDecorator(
 /**
  * Helper to dynamically generate the paginated Swagger response definition.
  */
-export const ApiPaginatedResponse = <TModel extends Type<any>>(model: TModel) => {
+export const ApiPaginatedResponse = <TModel extends Type<any>>(
+  model: TModel,
+) => {
   return applyDecorators(
     ApiExtraModels(PaginatedResult, model),
     ApiOkResponse({

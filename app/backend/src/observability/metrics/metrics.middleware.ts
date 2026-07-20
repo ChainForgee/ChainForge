@@ -31,7 +31,12 @@ export class MetricsMiddleware implements NestMiddleware {
 
       // Record metrics
       self.metricsService.incrementHttpRequest(method, route, statusCode);
-      self.metricsService.recordHttpDuration(method, route, duration, statusCode);
+      self.metricsService.recordHttpDuration(
+        method,
+        route,
+        duration,
+        statusCode,
+      );
 
       // Call the original end function
       return originalEnd.apply(res, args);

@@ -175,7 +175,7 @@ ${claim.transactionHash ? `Transaction Hash: ${claim.transactionHash}` : ''}`.tr
         {claim.tokenAddress && (
           <div className="col-span-2">
             <p className="text-xs font-semibold opacity-75 mb-1">TOKEN ADDRESS</p>
-            
+            <a
               href={buildExplorerUrl('address', claim.tokenAddress)}
               target="_blank"
               rel="noopener noreferrer"
@@ -189,7 +189,7 @@ ${claim.transactionHash ? `Transaction Hash: ${claim.transactionHash}` : ''}`.tr
         {claim.contractAddress && (
           <div className="col-span-2">
             <p className="text-xs font-semibold opacity-75 mb-1">CONTRACT ADDRESS</p>
-            
+            <a
               href={buildExplorerUrl('contract', claim.contractAddress)}
               target="_blank"
               rel="noopener noreferrer"
@@ -203,7 +203,7 @@ ${claim.transactionHash ? `Transaction Hash: ${claim.transactionHash}` : ''}`.tr
         {claim.transactionHash && (
           <div className="col-span-2">
             <p className="text-xs font-semibold opacity-75 mb-1">TRANSACTION HASH</p>
-            
+            <a
               href={buildExplorerUrl('tx', claim.transactionHash)}
               target="_blank"
               rel="noopener noreferrer"

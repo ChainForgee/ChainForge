@@ -117,6 +117,7 @@
       "!src/**/examples/**",
       "!src/main.ts",
       "!src/**/*.module.ts",
+      "!src/feature-modules.registry.ts",
       "!src/**/*.dto.ts",
       "!src/**/dto/**",
       "!src/**/types/**",

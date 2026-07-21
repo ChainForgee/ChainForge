@@ -173,10 +173,22 @@ class MaxRequestBodySizeMiddleware:
             return None
         method = scope.get("method", "").upper()
         raw_path = scope.get("raw_path") or scope.get("path", "").encode("latin-1")
+        # ``scope["raw_path"]`` is ``bytes`` per the ASGI spec, but
+        # ``route.path_regex`` is an :class:`re.Pattern` compiled from
+        # a ``str`` template — feeding bytes into a str-pattern
+        # raises ``TypeError: cannot use a string pattern on a
+        # bytes-like object``.  Decode to ``str`` before matching,
+        # falling back to the existing ``str`` value so callers that
+        # pass a synthetic ``str`` (e.g. tests skipping raw ASGI) keep
+        # working.
+        if isinstance(raw_path, (bytes, bytearray)):
+            path_for_match = raw_path.decode("latin-1")
+        else:
+            path_for_match = raw_path
         for (m, regex), limit in self.route_limits.items():
             if m != method:
                 continue
-            if regex.match(raw_path):
+            if regex.match(path_for_match):
                 return int(limit)
         return None
 

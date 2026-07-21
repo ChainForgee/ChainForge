@@ -14,6 +14,7 @@ import { DeprecationInterceptor } from './common/interceptors/deprecation.interc
 import { HttpCacheInterceptor } from './common/interceptors/http-cache.interceptor';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
 import { RequestCorrelationMiddleware } from './middleware/request-correlation.middleware';
+import { CsrfMiddleware } from './common/security/csrf.middleware';
 
 /**
  * Top-level application module.
@@ -64,8 +65,11 @@ export class AppModule implements NestModule {
 
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestCorrelationMiddleware).forRoutes('*');
+    // CSRF middleware: gated behind CSRF_PROTECTION_ENABLED env variable.
+    // See docs/security/csrf-posture.md for the current posture.
+    consumer.apply(CsrfMiddleware).forRoutes('*');
     this.logger.log(
-      'AppModule initialized with structured logging, correlation IDs, and rate limiting',
+      'AppModule initialized with structured logging, correlation IDs, rate limiting, and CSRF protection',
     );
   }
 }

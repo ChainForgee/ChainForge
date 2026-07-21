@@ -14,6 +14,8 @@ import { DeprecationInterceptor } from './common/interceptors/deprecation.interc
 import { HttpCacheInterceptor } from './common/interceptors/http-cache.interceptor';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
 import { RequestCorrelationMiddleware } from './middleware/request-correlation.middleware';
+import { CsrfMiddleware } from './common/security/csrf.middleware';
+import { DecimalSerializerInterceptor } from './common/interceptors/decimal-serializer.interceptor';
 
 /**
  * Top-level application module.
@@ -57,6 +59,7 @@ import { RequestCorrelationMiddleware } from './middleware/request-correlation.m
     // HttpCacheInterceptor runs closest to the route handler to
     // observe the raw response body for ETag computation.
     { provide: APP_INTERCEPTOR, useClass: HttpCacheInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: DecimalSerializerInterceptor },
   ],
 })
 export class AppModule implements NestModule {
@@ -64,8 +67,12 @@ export class AppModule implements NestModule {
 
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestCorrelationMiddleware).forRoutes('*');
+    // CSRF middleware: gated behind CSRF_PROTECTION_ENABLED env variable.
+    // See docs/security/csrf-posture.md for the current posture.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+    consumer.apply(CsrfMiddleware).forRoutes('*');
     this.logger.log(
-      'AppModule initialized with structured logging, correlation IDs, and rate limiting',
+      'AppModule initialized with structured logging, correlation IDs, rate limiting, and CSRF protection',
     );
   }
 }

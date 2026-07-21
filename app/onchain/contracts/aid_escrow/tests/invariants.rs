@@ -55,8 +55,6 @@ const MAX_UNITS: i128 = 100;
 /// Maximum operations per sequence.
 const MAX_OPS: usize = 30;
 
-/// Seed for reproducible CI runs — `PROPTEST_SEED=0xdeadbeef` overrides.
-const CI_SEED: u64 = 0xDEAD_BEEF_CAFE_0001;
 
 // ---------------------------------------------------------------------------
 // Operations the fuzzer can apply

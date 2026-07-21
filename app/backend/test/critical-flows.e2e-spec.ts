@@ -17,6 +17,7 @@ describe('Critical Flows (e2e)', () => {
   let prisma: PrismaService;
   let encryptionService: EncryptionService;
   const testApiKey = 'e2e-test-key-0001';
+  // codeql[js/insufficient-password-hash]
   const mockAuthDigest = createHash('sha256').update(testApiKey).digest('hex');
 
   const mockOnchainAdapter = {

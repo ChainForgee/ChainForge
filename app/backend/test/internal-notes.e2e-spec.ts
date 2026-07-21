@@ -10,6 +10,7 @@ describe('Internal Notes (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   const testApiKey = 'e2e-test-key-0001';
+  // codeql[js/insufficient-password-hash]
   const mockAuthDigest = createHash('sha256').update(testApiKey).digest('hex');
 
   beforeAll(async () => {

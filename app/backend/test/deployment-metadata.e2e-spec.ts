@@ -35,6 +35,7 @@ describe('Deployment Metadata (e2e)', () => {
       update: { revokedAt: null },
       create: {
         key: adminToken,
+        // codeql[js/insufficient-password-hash]
         keyHash: createHash('sha256').update(adminToken).digest('hex'),
         keyPreview: adminToken.slice(0, 8),
         role: 'admin',
@@ -46,6 +47,7 @@ describe('Deployment Metadata (e2e)', () => {
       update: { revokedAt: null },
       create: {
         key: clientToken,
+        // codeql[js/insufficient-password-hash]
         keyHash: createHash('sha256').update(clientToken).digest('hex'),
         keyPreview: clientToken.slice(0, 8),
         role: 'client',

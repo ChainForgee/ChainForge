@@ -12,6 +12,7 @@ describe('Verification rate limiting (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   const testApiKey = 'e2e-rate-limit-key';
+  // codeql[js/insufficient-password-hash]
   const mockAuthDigest = createHash('sha256').update(testApiKey).digest('hex');
 
   beforeEach(async () => {

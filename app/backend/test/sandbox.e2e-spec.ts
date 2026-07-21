@@ -29,6 +29,7 @@ describe('Sandbox Guard (E2E)', () => {
   let prisma: PrismaService;
   const originalSandboxEnabled = process.env.SANDBOX_ENABLED;
   const adminKey = 'dev-admin-key-000';
+  // codeql[js/insufficient-password-hash]
   const adminKeyHash = createHash('sha256').update(adminKey).digest('hex');
 
   beforeAll(async () => {

@@ -75,7 +75,7 @@ describe('Verification Lifecycle E2E', () => {
     prismaService = moduleFixture.get<PrismaService>(PrismaService);
     authSecretValue = process.env.API_KEY || 'test-api-key-123';
 
-    // lgtm[js/insufficient-password-hash]
+    // codeql[js/insufficient-password-hash]
     const mockAuthDigest = createHash('sha256')
       .update(authSecretValue)
       .digest('hex');

@@ -47,7 +47,7 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or missing API key');
     }
 
-    // lgtm[js/insufficient-password-hash]
+    // codeql[js/insufficient-password-hash]
     const lookupDigest = createHash('sha256').update(rawToken).digest('hex');
 
     // Primary path: look up the key in the database (hashed preferred; legacy plaintext supported)

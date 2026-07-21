@@ -108,10 +108,18 @@ export const FEATURE_MODULES: Type<unknown>[] = [
  */
 function buildInfrastructureModules(): DynamicModule[] {
   return [
+    // ``ConfigModule.forRoot(...)`` is typed as returning
+    // ``Promise<DynamicModule>`` in @nestjs/config v4, while every
+    // other ``forRoot``/``forRootAsync`` factory below remains
+    // ``DynamicModule``-shaped.  At runtime the call resolves
+    // synchronously with a ``DynamicModule`` (verified by the
+    // existing test suite that compiles ``FeatureModuleRegistry``
+    // eagerly), so we narrow via ``as unknown as DynamicModule``
+    // rather than refactor ``AppModule`` into an async factory.
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: loadEnv(),
-    }),
+    }) as unknown as DynamicModule,
     BullModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({

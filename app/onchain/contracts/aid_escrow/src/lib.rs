@@ -1941,10 +1941,10 @@ mod tests {
         client.rotate_admin(&new_admin, &deadline);
         client.accept_admin(); // called as new_admin (mock_auth)
 
-        let stored_admin = client.get_admin();
+        let stored_admin: Address = client.get_admin();
         assert_eq!(
             stored_admin,
-            Ok(new_admin.clone()),
+            new_admin.clone(),
             "admin should be rotated to new_admin"
         );
 

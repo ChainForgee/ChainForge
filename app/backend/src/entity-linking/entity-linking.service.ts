@@ -5,12 +5,29 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import {
   CreateEntityLinkDto,
   LinkEntityResult,
   EntityLinkQueryDto,
   RegistrySearchResult,
 } from './dto/entity-link.dto';
+
+/** Fields that can be set on an EntityLink create input. */
+interface EntityLinkCreateInput {
+  sourceType: string;
+  sourceId: string;
+  extractedName: string;
+  extractedType: string;
+  entityType: string;
+  confidenceScore: number;
+  matchMethod: string;
+  metadata: Prisma.InputJsonValue | null;
+  organizationId?: string;
+  locationId?: string;
+  assetId?: string;
+  projectId?: string;
+}
 
 @Injectable()
 export class EntityLinkingService {
@@ -57,7 +74,7 @@ export class EntityLinkingService {
     }
 
     // Create entity link
-    const linkData: any = {
+    const linkData: EntityLinkCreateInput = {
       sourceType: dto.sourceType,
       sourceId: dto.sourceId,
       extractedName: dto.extractedName,
@@ -110,7 +127,7 @@ export class EntityLinkingService {
     const limit = query.limit || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: Prisma.EntityLinkWhereInput = {};
 
     if (query.sourceType) {
       where.sourceType = query.sourceType;
@@ -157,7 +174,7 @@ export class EntityLinkingService {
     campaignId: string,
     entityType?: string,
   ): Promise<LinkEntityResult[]> {
-    const where: any = {
+    const where: Prisma.EntityLinkWhereInput = {
       sourceType: 'campaign',
       sourceId: campaignId,
     };
@@ -181,7 +198,7 @@ export class EntityLinkingService {
     claimId: string,
     entityType?: string,
   ): Promise<LinkEntityResult[]> {
-    const where: any = {
+    const where: Prisma.EntityLinkWhereInput = {
       sourceType: 'claim',
       sourceId: claimId,
     };
@@ -205,7 +222,7 @@ export class EntityLinkingService {
     verificationId: string,
     entityType?: string,
   ): Promise<LinkEntityResult[]> {
-    const where: any = {
+    const where: Prisma.EntityLinkWhereInput = {
       sourceType: 'verification',
       sourceId: verificationId,
     };
@@ -275,13 +292,13 @@ export class EntityLinkingService {
             id: org.id,
             registryId: org.registryId,
             name: org.name,
-            entityType: 'organization',
+            entityType: 'organization' as const,
             confidenceScore:
               org.name.toLowerCase() === query.toLowerCase() ? 1.0 : 0.8,
             matchMethod:
               org.name.toLowerCase() === query.toLowerCase()
-                ? 'exact'
-                : 'fuzzy',
+                ? 'exact' as const
+                : 'fuzzy' as const,
           })),
         );
         break;
@@ -305,13 +322,13 @@ export class EntityLinkingService {
             id: loc.id,
             registryId: loc.registryId,
             name: loc.name,
-            entityType: 'location',
+            entityType: 'location' as const,
             confidenceScore:
               loc.name.toLowerCase() === query.toLowerCase() ? 1.0 : 0.75,
             matchMethod:
               loc.name.toLowerCase() === query.toLowerCase()
-                ? 'exact'
-                : 'fuzzy',
+                ? 'exact' as const
+                : 'fuzzy' as const,
           })),
         );
         break;
@@ -334,13 +351,13 @@ export class EntityLinkingService {
             id: asset.id,
             registryId: asset.registryId,
             name: asset.name,
-            entityType: 'asset',
+            entityType: 'asset' as const,
             confidenceScore:
               asset.name.toLowerCase() === query.toLowerCase() ? 1.0 : 0.75,
             matchMethod:
               asset.name.toLowerCase() === query.toLowerCase()
-                ? 'exact'
-                : 'fuzzy',
+                ? 'exact' as const
+                : 'fuzzy' as const,
           })),
         );
         break;
@@ -362,13 +379,13 @@ export class EntityLinkingService {
             id: proj.id,
             registryId: proj.registryId,
             name: proj.name,
-            entityType: 'project',
+            entityType: 'project' as const,
             confidenceScore:
               proj.name.toLowerCase() === query.toLowerCase() ? 1.0 : 0.75,
             matchMethod:
               proj.name.toLowerCase() === query.toLowerCase()
-                ? 'exact'
-                : 'fuzzy',
+                ? 'exact' as const
+                : 'fuzzy' as const,
           })),
         );
         break;
@@ -529,7 +546,7 @@ export class EntityLinkingService {
   /**
    * Helper: Map Prisma entity link to result DTO
    */
-  private mapLinkResult(link: any): LinkEntityResult {
+  private mapLinkResult(link: Prisma.EntityLinkGetPayload<{}>): LinkEntityResult {
     return {
       id: link.id,
       sourceType: link.sourceType,

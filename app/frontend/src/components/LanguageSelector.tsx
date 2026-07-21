@@ -11,6 +11,9 @@ const localeNames: Record<Locale, string> = {
   en: 'English',
   es: 'Español',
   fr: 'Français',
+  'fr-CA': 'Français (Canada)',
+  'pt-BR': 'Português (Brasil)',
+  sw: 'Kiswahili',
 };
 
 export function LanguageSelector() {

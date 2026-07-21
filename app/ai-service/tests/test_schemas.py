@@ -66,3 +66,52 @@ class TestErrorDetail:
         response = OCRResponse(success=False, error=error, processing_time_ms=0)
         assert response.error == error
         assert response.error["code"] == "test_error"
+
+
+class TestSchemaModelVersionSnapshots:
+    """Pins model_version in expected output schema snapshots."""
+
+    def test_humanitarian_verification_response_snapshot(self):
+        from schemas.humanitarian import HumanitarianVerificationResponse
+        resp = HumanitarianVerificationResponse(
+            success=True,
+            provider="openai",
+            model="gpt-4o-mini",
+            prompt_variant="primary",
+            verification={"verdict": "credible", "confidence": 0.95},
+            model_version="gpt-4o-mini"
+        )
+        snapshot = resp.model_dump()
+        assert snapshot["model_version"] == "gpt-4o-mini"
+        assert snapshot["success"] is True
+        assert snapshot["provider"] == "openai"
+
+    def test_anonymize_response_snapshot(self):
+        from schemas.anonymization import AnonymizeResponse, PIISummary
+        resp = AnonymizeResponse(
+            success=True,
+            anonymized_text="Hello [RECIPIENT_NAME]",
+            original_length=15,
+            pii_summary=PIISummary(names=1, locations=0, dates=0, total=1),
+            model_version="gpt-4o-mini"
+        )
+        snapshot = resp.model_dump()
+        assert snapshot["model_version"] == "gpt-4o-mini"
+        assert snapshot["success"] is True
+
+    def test_ocr_response_snapshot(self):
+        from schemas.ocr import OCRResponse, OCRData, OCRFieldResult
+        resp = OCRResponse(
+            success=True,
+            data=OCRData(
+                fields={"name": OCRFieldResult(value="John", confidence=0.9)},
+                raw_text="Name: John",
+                processing_time_ms=120
+            ),
+            processing_time_ms=120,
+            model_version="gpt-4o-mini"
+        )
+        snapshot = resp.model_dump()
+        assert snapshot["model_version"] == "gpt-4o-mini"
+        assert snapshot["success"] is True
+

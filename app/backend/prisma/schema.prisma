@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -39,7 +39,8 @@ model AidPackage {
   remainingAmount Float @default(0)
 
   @@index([campaignId])
-    @@index([campaignId, status])
+  @@index([campaignId, status])
+  @@index([campaignId, status, createdAt])
 }
 
 /// Tracks every balance event (lock / unlock / disburse) for a campaign.
@@ -243,7 +244,7 @@ model Claim {
 
   @@index([status])
   @@index([campaignId])
-   @@index([campaignId, status])
+  @@index([campaignId, status])
   @@index([createdAt])
   @@index([deletedAt])
   @@index([reissuedFromId])
@@ -369,11 +370,12 @@ model Campaign {
   @@index([archivedAt])
   @@index([ngoId])
   @@index([orgId])
+  @@index([orgId, status, createdAt])
   @@index([deletedAt])
 }
 
 model Role {
-  id   Int    @id @default(autoincrement())
+  id   String @id @default(cuid())
   name String @unique
 }
 

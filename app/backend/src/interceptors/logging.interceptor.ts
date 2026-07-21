@@ -9,8 +9,15 @@ import { tap } from 'rxjs/operators';
 import { LoggerService } from '../logger/logger.service';
 import { Request, Response } from 'express';
 
+interface AuthenticatedUser {
+  sub?: string;
+  id?: string;
+  apiKeyId?: string;
+}
+
 interface ExtendedRequest extends Request {
   requestId?: string;
+  user?: AuthenticatedUser;
 }
 
 @Injectable()
@@ -27,9 +34,9 @@ export class LoggingInterceptor implements NestInterceptor {
     const url = request.url;
     const requestId = request.headers['x-request-id'] as string;
     const userId =
-      (request.user as any)?.sub ||
-      (request.user as any)?.id ||
-      (request.user as any)?.apiKeyId;
+      request.user?.sub ||
+      request.user?.id ||
+      request.user?.apiKeyId;
     const route = `${method} ${url}`;
     const startTime = Date.now();
 

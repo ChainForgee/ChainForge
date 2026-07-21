@@ -69,6 +69,7 @@ export class AppModule implements NestModule {
     consumer.apply(RequestCorrelationMiddleware).forRoutes('*');
     // CSRF middleware: gated behind CSRF_PROTECTION_ENABLED env variable.
     // See docs/security/csrf-posture.md for the current posture.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
     consumer.apply(CsrfMiddleware).forRoutes('*');
     this.logger.log(
       'AppModule initialized with structured logging, correlation IDs, rate limiting, and CSRF protection',

@@ -467,7 +467,7 @@ impl AidEscrow {
     ///
     /// # Errors
     /// Returns `Error::NotAuthorized` if caller is not the current admin.
-    /// Returns `Error::InvalidAmount` if `deadline` is not in the future.
+    /// Returns `Error::InvalidState` if `deadline` is not in the future.
     pub fn rotate_admin(env: Env, new_admin: Address, deadline: u64) -> Result<(), Error> {
         let admin = Self::get_admin(env.clone())?;
         admin.require_auth();

@@ -225,7 +225,7 @@ export class UsageTrackerService {
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  private async resolveOrgId(_keyId: string): Promise<string> {
+  private resolveOrgId(_keyId: string): string {
     // In production this would query the ApiKeys table via PrismaService.
     // For now we return a placeholder — the anomaly is still logged.
     return 'unknown';

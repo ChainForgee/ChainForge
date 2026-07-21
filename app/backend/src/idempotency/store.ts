@@ -36,7 +36,13 @@ export class IdempotencyStore {
     }
 
     // Key exists — fetch it
-    const { rows } = await this.pool.query(
+    const { rows } = await this.pool.query<{
+      idempotency_key: string;
+      request_fingerprint: string;
+      status: RecordStatus;
+      response_body: Buffer | null;
+      response_status: number | null;
+    }>(
       `SELECT idempotency_key, request_fingerprint, status, response_body, response_status
            FROM idempotency_records WHERE idempotency_key = $1`,
       [key.asString()],

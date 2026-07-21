@@ -16,8 +16,6 @@ interface AuthenticatedRequest extends Request {
     authType?: string;
     apiKeyId?: string;
   };
-  path?: string;
-  ips?: string | string[];
 }
 
 @Injectable()

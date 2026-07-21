@@ -22,14 +22,20 @@ export function idempotencyMiddleware(store: IdempotencyStore) {
 
       if (!existingRecord) {
         // First time: Intercept the response to cache it
-        const originalSend = res.send.bind(res);
+        const originalSend = res.send.bind(res) as (
+          body: unknown,
+        ) => Response;
 
-        res.send = (body: any) => {
+        res.send = ((body: unknown) => {
           const status = res.statusCode;
           const recordStatus =
             status >= 200 && status < 300 ? 'succeeded' : 'failed';
           const bodyString =
-            typeof body === 'string' ? body : JSON.stringify(body);
+            typeof body === 'string'
+              ? body
+              : body instanceof Buffer
+                ? body.toString('utf-8')
+                : JSON.stringify(body);
 
           // Fire and forget cache save (log on failure)
           store
@@ -42,7 +48,7 @@ export function idempotencyMiddleware(store: IdempotencyStore) {
             );
 
           return originalSend(body);
-        };
+        }) as unknown as typeof res.send;
 
         return next();
       }

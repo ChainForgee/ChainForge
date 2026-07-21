@@ -9,10 +9,15 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ONCHAIN_ADAPTER_TOKEN } from '../src/onchain/onchain.adapter';
 import { VerificationChannel } from '@prisma/client';
+import { createHash } from 'crypto';
+import { EncryptionService } from '../src/common/encryption/encryption.service';
 
 describe('Critical Flows (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let encryptionService: EncryptionService;
+  const testApiKey = 'e2e-test-key-0001';
+  const mockAuthDigest = createHash('sha256').update(testApiKey).digest('hex');
 
   const mockOnchainAdapter = {
     getAidPackage: jest.fn().mockResolvedValue({
@@ -68,6 +73,19 @@ describe('Critical Flows (e2e)', () => {
 
     await app.init();
     prisma = app.get(PrismaService);
+    encryptionService = app.get(EncryptionService);
+
+    // Seed the API key so e2e calls are authenticated
+    await prisma.apiKey.upsert({
+      where: { keyHash: mockAuthDigest },
+      update: { revokedAt: null },
+      create: {
+        key: testApiKey,
+        keyHash: mockAuthDigest,
+        keyPreview: testApiKey.slice(0, 8),
+        role: 'admin',
+      },
+    });
   });
 
   afterAll(async () => {
@@ -75,6 +93,7 @@ describe('Critical Flows (e2e)', () => {
     await prisma.verificationSession.deleteMany({
       where: { identifier: 'e2e@chainforge.app' },
     });
+    await prisma.apiKey.deleteMany({ where: { keyHash: mockAuthDigest } });
     await app.close();
   });
 
@@ -105,6 +124,7 @@ describe('Critical Flows (e2e)', () => {
     it('should start a verification session', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/verification/start')
+        .set('x-api-key', testApiKey)
         .send({
           channel: VerificationChannel.email,
           email: testEmail,
@@ -126,11 +146,15 @@ describe('Critical Flows (e2e)', () => {
         throw new Error('Session not found in DB');
       }
 
+      // Decrypt code stored in the DB
+      const decryptedCode = encryptionService.decrypt(session.code);
+
       const res = await request(app.getHttpServer())
         .post('/api/v1/verification/complete')
+        .set('x-api-key', testApiKey)
         .send({
           sessionId,
-          code: session.code,
+          code: decryptedCode,
         })
         .expect(200);
 
@@ -143,6 +167,7 @@ describe('Critical Flows (e2e)', () => {
       const packageId = 'pkg_123';
       const res = await request(app.getHttpServer())
         .get(`/api/v1/onchain/aid-escrow/packages/${packageId}`)
+        .set('x-api-key', testApiKey)
         .expect(200);
 
       expect(res.body.package.id).toBe(packageId);
@@ -152,6 +177,7 @@ describe('Critical Flows (e2e)', () => {
     it('should retrieve aid package statistics', async () => {
       const res = await request(app.getHttpServer())
         .get('/api/v1/onchain/aid-escrow/stats')
+        .set('x-api-key', testApiKey)
         .expect(200);
 
       expect(res.body.aggregates).toBeDefined();

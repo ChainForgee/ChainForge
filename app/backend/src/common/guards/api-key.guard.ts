@@ -30,12 +30,18 @@ export class ApiKeyGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<Request>();
     const tokenHeader = request.headers['x-api-key'];
+    const authHeader = request.headers['authorization'];
+    let bearerToken: string | undefined;
+    if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+      bearerToken = authHeader.substring(7).trim();
+    }
+
     const rawToken =
-      typeof tokenHeader === 'string'
+      (typeof tokenHeader === 'string'
         ? tokenHeader
         : Array.isArray(tokenHeader)
           ? tokenHeader[0]
-          : undefined;
+          : undefined) ?? bearerToken;
 
     if (!rawToken) {
       throw new UnauthorizedException('Invalid or missing API key');

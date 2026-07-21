@@ -9,10 +9,12 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ONCHAIN_ADAPTER_TOKEN } from '../src/onchain/onchain.adapter';
 import { mockSorobanAdapter } from './mocks/external-services.mock';
+import { EncryptionService } from '../src/common/encryption/encryption.service';
 
 describe('Comprehensive E2E Harness', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let encryptionService: EncryptionService;
   const API_KEY = 'test-api-key-123';
 
   beforeAll(async () => {
@@ -48,6 +50,7 @@ describe('Comprehensive E2E Harness', () => {
 
     await app.init();
     prisma = app.get(PrismaService);
+    encryptionService = app.get(EncryptionService);
   });
 
   afterAll(async () => {
@@ -63,12 +66,11 @@ describe('Comprehensive E2E Harness', () => {
       expect(res.body).toMatchObject({
         status: 'ok',
       });
-      expect(res.body.uptime).toBeDefined();
+      expect(res.body.checks.process.details.uptimeSeconds).toBeDefined();
     });
 
     it('/api/v1/health/ready (GET) - Readiness Probe', async () => {
-      // Note: This might return 503 if DB/Redis mocks are not perfectly aligned,
-      // but in a proper test environment with ioredis-mock and a test DB it should be 200.
+      // We accept both 200 and 503 for the purpose of the harness as long as it returns the correct structure
       const res = await request(app.getHttpServer()).get(
         '/api/v1/health/ready',
       );
@@ -76,7 +78,7 @@ describe('Comprehensive E2E Harness', () => {
       // We accept both 200 and 503 for the purpose of the harness as long as it returns the correct structure
       expect([200, 503]).toContain(res.status);
       expect(res.body).toHaveProperty('ready');
-      expect(res.body).toHaveProperty('dependencies');
+      expect(res.body).toHaveProperty('checks');
     });
   });
 
@@ -105,7 +107,7 @@ describe('Comprehensive E2E Harness', () => {
       });
 
       expect(session).toBeDefined();
-      const code = session!.code;
+      const code = encryptionService.decrypt(session!.code);
 
       const res = await request(app.getHttpServer())
         .post('/api/v1/verification/complete')

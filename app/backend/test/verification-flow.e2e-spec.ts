@@ -5,10 +5,15 @@ import request from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { VerificationChannel } from '@prisma/client';
+import { createHash } from 'crypto';
+import { EncryptionService } from 'src/common/encryption/encryption.service';
 
 describe('Verification flow (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let encryptionService: EncryptionService;
+  const testApiKey = 'e2e-test-key-0001';
+  const mockAuthDigest = createHash('sha256').update(testApiKey).digest('hex');
 
   const base = '/api/v1/verification';
 
@@ -36,6 +41,19 @@ describe('Verification flow (e2e)', () => {
 
     await app.init();
     prisma = app.get(PrismaService);
+    encryptionService = app.get(EncryptionService);
+
+    // Seed the API key so e2e calls are authenticated
+    await prisma.apiKey.upsert({
+      where: { keyHash: mockAuthDigest },
+      update: { revokedAt: null },
+      create: {
+        key: testApiKey,
+        keyHash: mockAuthDigest,
+        keyPreview: testApiKey.slice(0, 8),
+        role: 'admin',
+      },
+    });
   });
 
   beforeEach(async () => {
@@ -59,6 +77,7 @@ describe('Verification flow (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.apiKey.deleteMany({ where: { keyHash: mockAuthDigest } });
     await app.close();
   });
 
@@ -66,6 +85,7 @@ describe('Verification flow (e2e)', () => {
     it('should start verification and return sessionId (email)', async () => {
       const res = await request(app.getHttpServer())
         .post(`${base}/start`)
+        .set('x-api-key', testApiKey)
         .send({ channel: 'email', email: 'user@example.com' })
         .expect(200);
 
@@ -81,6 +101,7 @@ describe('Verification flow (e2e)', () => {
     it('should start verification for phone', async () => {
       const res = await request(app.getHttpServer())
         .post(`${base}/start`)
+        .set('x-api-key', testApiKey)
         .send({ channel: 'phone', phone: '+15551234567' })
         .expect(200);
 
@@ -91,6 +112,7 @@ describe('Verification flow (e2e)', () => {
     it('should reject missing email when channel is email', async () => {
       await request(app.getHttpServer())
         .post(`${base}/start`)
+        .set('x-api-key', testApiKey)
         .send({ channel: 'email' })
         .expect(400);
     });
@@ -98,6 +120,7 @@ describe('Verification flow (e2e)', () => {
     it('should reject missing phone when channel is phone', async () => {
       await request(app.getHttpServer())
         .post(`${base}/start`)
+        .set('x-api-key', testApiKey)
         .send({ channel: 'phone' })
         .expect(400);
     });
@@ -105,6 +128,7 @@ describe('Verification flow (e2e)', () => {
     it('should reject invalid channel', async () => {
       await request(app.getHttpServer())
         .post(`${base}/start`)
+        .set('x-api-key', testApiKey)
         .send({ channel: 'sms', email: 'a@b.com' })
         .expect(400);
     });
@@ -115,14 +139,15 @@ describe('Verification flow (e2e)', () => {
       const session = await prisma.verificationSession.create({
         data: {
           channel: VerificationChannel.email,
-          identifier: 'flow@example.com',
-          code: '123456',
+          identifier: encryptionService.encryptDeterministic('flow@example.com'),
+          code: encryptionService.encrypt('123456'),
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         },
       });
 
       const completeRes = await request(app.getHttpServer())
         .post(`${base}/complete`)
+        .set('x-api-key', testApiKey)
         .send({ sessionId: session.id, code: '123456' })
         .expect(200);
 
@@ -144,14 +169,15 @@ describe('Verification flow (e2e)', () => {
       const session = await prisma.verificationSession.create({
         data: {
           channel: VerificationChannel.email,
-          identifier: 'wrong@example.com',
-          code: '123456',
+          identifier: encryptionService.encryptDeterministic('wrong@example.com'),
+          code: encryptionService.encrypt('123456'),
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         },
       });
 
       await request(app.getHttpServer())
         .post(`${base}/complete`)
+        .set('x-api-key', testApiKey)
         .send({ sessionId: session.id, code: '999999' })
         .expect(400);
     });
@@ -159,6 +185,7 @@ describe('Verification flow (e2e)', () => {
     it('should return 404 for unknown sessionId', async () => {
       await request(app.getHttpServer())
         .post(`${base}/complete`)
+        .set('x-api-key', testApiKey)
         .send({
           sessionId: 'clv000000000000000000000',
           code: '123456',
@@ -170,14 +197,15 @@ describe('Verification flow (e2e)', () => {
       const session = await prisma.verificationSession.create({
         data: {
           channel: VerificationChannel.email,
-          identifier: 'x@y.com',
-          code: '123456',
+          identifier: encryptionService.encryptDeterministic('x@y.com'),
+          code: encryptionService.encrypt('123456'),
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         },
       });
 
       await request(app.getHttpServer())
         .post(`${base}/complete`)
+        .set('x-api-key', testApiKey)
         .send({ sessionId: session.id, code: '12ab56' })
         .expect(400);
     });
@@ -186,14 +214,15 @@ describe('Verification flow (e2e)', () => {
       const session = await prisma.verificationSession.create({
         data: {
           channel: VerificationChannel.email,
-          identifier: 'x@y.com',
-          code: '123456',
+          identifier: encryptionService.encryptDeterministic('x@y.com'),
+          code: encryptionService.encrypt('123456'),
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         },
       });
 
       await request(app.getHttpServer())
         .post(`${base}/complete`)
+        .set('x-api-key', testApiKey)
         .send({ sessionId: session.id, code: '123' })
         .expect(400);
     });
@@ -204,8 +233,8 @@ describe('Verification flow (e2e)', () => {
       const session = await prisma.verificationSession.create({
         data: {
           channel: VerificationChannel.email,
-          identifier: 'resend@example.com',
-          code: '111111',
+          identifier: encryptionService.encryptDeterministic('resend@example.com'),
+          code: encryptionService.encrypt('111111'),
           resendCount: 0,
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         },
@@ -213,6 +242,7 @@ describe('Verification flow (e2e)', () => {
 
       const resendRes = await request(app.getHttpServer())
         .post(`${base}/resend`)
+        .set('x-api-key', testApiKey)
         .send({ sessionId: session.id })
         .expect(200);
 
@@ -223,17 +253,21 @@ describe('Verification flow (e2e)', () => {
         where: { id: session.id },
       });
       expect(updated?.resendCount).toBe(1);
-      expect(updated?.code).not.toBe('111111');
+      expect(updated?.code).not.toBe(encryptionService.encrypt('111111'));
+
+      const decryptedNewCode = encryptionService.decrypt(updated!.code);
 
       await request(app.getHttpServer())
         .post(`${base}/complete`)
-        .send({ sessionId: session.id, code: updated!.code })
+        .set('x-api-key', testApiKey)
+        .send({ sessionId: session.id, code: decryptedNewCode })
         .expect(200);
     });
 
     it('should return 404 for unknown sessionId', async () => {
       await request(app.getHttpServer())
         .post(`${base}/resend`)
+        .set('x-api-key', testApiKey)
         .send({ sessionId: 'clv000000000000000000000' })
         .expect(404);
     });
@@ -242,8 +276,8 @@ describe('Verification flow (e2e)', () => {
       const session = await prisma.verificationSession.create({
         data: {
           channel: VerificationChannel.email,
-          identifier: 'limit@example.com',
-          code: '123456',
+          identifier: encryptionService.encryptDeterministic('limit@example.com'),
+          code: encryptionService.encrypt('123456'),
           resendCount: 3,
           expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         },
@@ -251,6 +285,7 @@ describe('Verification flow (e2e)', () => {
 
       await request(app.getHttpServer())
         .post(`${base}/resend`)
+        .set('x-api-key', testApiKey)
         .send({ sessionId: session.id })
         .expect(400);
     });

@@ -1,13 +1,16 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { App } from 'supertest/types';
+import { createHash } from 'crypto';
 
 describe('Internal Notes (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  const testApiKey = 'e2e-test-key-0001';
+  const mockAuthDigest = createHash('sha256').update(testApiKey).digest('hex');
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -15,6 +18,12 @@ describe('Internal Notes (e2e)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+      prefix: 'v',
+    });
 
     app.useGlobalPipes(
       new ValidationPipe({
@@ -26,6 +35,18 @@ describe('Internal Notes (e2e)', () => {
 
     await app.init();
     prisma = app.get(PrismaService);
+
+    // Seed the API key so e2e calls are authenticated
+    await prisma.apiKey.upsert({
+      where: { keyHash: mockAuthDigest },
+      update: { revokedAt: null },
+      create: {
+        key: testApiKey,
+        keyHash: mockAuthDigest,
+        keyPreview: testApiKey.slice(0, 8),
+        role: 'admin',
+      },
+    });
   });
 
   beforeEach(async () => {
@@ -36,6 +57,7 @@ describe('Internal Notes (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.apiKey.deleteMany({ where: { keyHash: mockAuthDigest } });
     await app.close();
   });
 
@@ -55,6 +77,7 @@ describe('Internal Notes (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .post(`/api/v1/claims/${claim.id}/notes`)
+        .set('x-api-key', testApiKey)
         .send({
           content: 'This is an internal note.',
           category: 'investigation',
@@ -97,6 +120,7 @@ describe('Internal Notes (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .get(`/api/v1/claims/${claim.id}/notes`)
+        .set('x-api-key', testApiKey)
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -119,15 +143,15 @@ describe('Internal Notes (e2e)', () => {
 
       const res = await request(app.getHttpServer())
         .post(`/api/v1/verification/${session.id}/notes`)
+        .set('x-api-key', testApiKey)
         .send({
           content: 'Verification note.',
         })
         .expect(201);
 
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.content).toBe('Verification note.');
-      expect(res.body.data.entityType).toBe('verification');
-      expect(res.body.data.entityId).toBe(session.id);
+      expect(res.body.content).toBe('Verification note.');
+      expect(res.body.entityType).toBe('verification');
+      expect(res.body.entityId).toBe(session.id);
     });
   });
 });

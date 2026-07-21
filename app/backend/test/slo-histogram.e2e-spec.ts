@@ -12,7 +12,7 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { MetricsService } from '../src/observability/metrics/metrics.service';
@@ -100,6 +100,7 @@ function populatedBucketCount(samples: HistogramSample[]): number {
 describe('Tail-latency SLO histogram (issue #243)', () => {
   let app: INestApplication;
   let metricsService: MetricsService;
+  const testApiKey = 'e2e-test-key-0001';
 
   const TOTAL_REQUESTS = 1_000;
   const TARGET_ROUTE = '/api/v1/health';
@@ -121,12 +122,19 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
   ];
 
   beforeAll(async () => {
+    process.env.API_KEY = testApiKey;
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+      prefix: 'v',
+    });
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, transform: true }),
     );
@@ -180,7 +188,9 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
     });
 
     it('records exactly 1 000 observations in the +Inf bucket', async () => {
-      const res = await request(app.getHttpServer()).get('/metrics');
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/metrics')
+        .set('x-api-key', testApiKey);
       expect(res.status).toBe(200);
 
       const buckets = parseBuckets(res.text, METRIC_NAME, {
@@ -197,7 +207,9 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
     });
 
     it('observations are spread across at least 5 distinct buckets', async () => {
-      const res = await request(app.getHttpServer()).get('/metrics');
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/metrics')
+        .set('x-api-key', testApiKey);
       expect(res.status).toBe(200);
 
       const buckets = parseBuckets(res.text, METRIC_NAME, {
@@ -211,7 +223,9 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
     });
 
     it('the /metrics scrape exposes all 9 SLO bucket boundaries', async () => {
-      const res = await request(app.getHttpServer()).get('/metrics');
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/metrics')
+        .set('x-api-key', testApiKey);
       expect(res.status).toBe(200);
 
       const buckets = parseBuckets(res.text, METRIC_NAME);
@@ -223,7 +237,9 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
     });
 
     it('the +Inf bucket equals the sum of incremental bucket counts', async () => {
-      const res = await request(app.getHttpServer()).get('/metrics');
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/metrics')
+        .set('x-api-key', testApiKey);
       expect(res.status).toBe(200);
 
       const buckets = parseBuckets(res.text, METRIC_NAME, {
@@ -253,7 +269,9 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
     it('recordHttpDuration passes status_code label to the histogram', async () => {
       metricsService.recordHttpDuration('POST', '/test-route', 0.05, 201);
 
-      const res = await request(app.getHttpServer()).get('/metrics');
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/metrics')
+        .set('x-api-key', testApiKey);
       expect(res.status).toBe(200);
 
       // Look for a bucket line with status_code="201"
@@ -263,7 +281,9 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
     });
 
     it('metric has help text that mentions SLO', async () => {
-      const res = await request(app.getHttpServer()).get('/metrics');
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/metrics')
+        .set('x-api-key', testApiKey);
       expect(res.status).toBe(200);
       expect(res.text).toMatch(/# HELP http_request_duration_seconds.*SLO/i);
     });
@@ -274,14 +294,18 @@ describe('Tail-latency SLO histogram (issue #243)', () => {
   describe('middleware wires observations end-to-end', () => {
     it('a real HTTP request to /api/v1/health produces a histogram observation', async () => {
       // Fetch /metrics baseline count
-      const before = await request(app.getHttpServer()).get('/metrics');
+      const before = await request(app.getHttpServer())
+        .get('/api/v1/metrics')
+        .set('x-api-key', testApiKey);
       const bucketsBefore = parseBuckets(before.text, METRIC_NAME);
       const infBefore = bucketsBefore.find(b => b.le === '+Inf')?.count ?? 0;
 
       // Make one real request through the full middleware stack
       await request(app.getHttpServer()).get(TARGET_ROUTE);
 
-      const after = await request(app.getHttpServer()).get('/metrics');
+      const after = await request(app.getHttpServer())
+        .get('/api/v1/metrics')
+        .set('x-api-key', testApiKey);
       const bucketsAfter = parseBuckets(after.text, METRIC_NAME);
       const infAfter = bucketsAfter.find(b => b.le === '+Inf')?.count ?? 0;
 

@@ -1,5 +1,5 @@
-import { Logger, INestApplication, VersioningType } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Logger, INestApplication, VersioningType, Controller, Get, HttpCode } from '@nestjs/common';
+import { ConfigService, ConfigModule } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import request from 'supertest';
@@ -283,13 +283,15 @@ describe('Security (e2e)', () => {
         .mockReturnValue(testMockRedis as any);
 
       const server = appInstance.getHttpServer();
-      const results: any[] = [];
-
-      for (let i = 0; i < 100; i += 1) {
-        results.push(request(server).get('/api/v1/'));
+      const responses: any[] = [];
+      const batchSize = 10;
+      for (let i = 0; i < 100; i += batchSize) {
+        const batch: any[] = [];
+        for (let j = 0; j < batchSize; j++) {
+          batch.push(request(server).get('/api/v1/'));
+        }
+        responses.push(...(await Promise.all(batch)));
       }
-
-      const responses = await Promise.all(results);
       const count429 = responses.filter(r => r.status === 429).length;
 
       expect(count429).toBeGreaterThanOrEqual(80);

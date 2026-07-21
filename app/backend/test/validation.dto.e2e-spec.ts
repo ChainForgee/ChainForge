@@ -1,17 +1,33 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 
 describe('DTO validation (e2e)', () => {
   let app: INestApplication;
+  const testApiKey = 'e2e-test-key-0001';
 
   beforeEach(async () => {
+    process.env.API_KEY = testApiKey;
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+      prefix: 'v',
+    });
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
     await app.init();
   });
 
@@ -23,6 +39,7 @@ describe('DTO validation (e2e)', () => {
     // missing amount
     await request(app.getHttpServer())
       .post('/api/v1/claims')
+      .set('x-api-key', testApiKey)
       .send({ campaignId: 'c1', recipientRef: 'r1' })
       .expect(400);
   });
@@ -30,6 +47,7 @@ describe('DTO validation (e2e)', () => {
   it('rejects unexpected fields (forbidNonWhitelisted) for CreateClaimDto', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/claims')
+      .set('x-api-key', testApiKey)
       .send({ campaignId: 'c1', amount: 10, recipientRef: 'r1', extra: 'nope' })
       .expect(400);
   });
@@ -37,6 +55,7 @@ describe('DTO validation (e2e)', () => {
   it('rejects missing required fields for CreateCampaignDto', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/campaigns')
+      .set('x-api-key', testApiKey)
       .send({ budget: 100 })
       .expect(400);
   });
@@ -44,6 +63,7 @@ describe('DTO validation (e2e)', () => {
   it('rejects unexpected fields for CreateCampaignDto', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/campaigns')
+      .set('x-api-key', testApiKey)
       .send({ name: 'A', budget: 100, unexpected: true })
       .expect(400);
   });
@@ -51,6 +71,7 @@ describe('DTO validation (e2e)', () => {
   it('rejects missing required fields for CreateVerificationDto', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/verification')
+      .set('x-api-key', testApiKey)
       .send({})
       .expect(400);
   });
@@ -59,6 +80,7 @@ describe('DTO validation (e2e)', () => {
     // amount sent as string should be transformed to number
     await request(app.getHttpServer())
       .post('/api/v1/claims')
+      .set('x-api-key', testApiKey)
       .send({ campaignId: 'c1', amount: '12.5', recipientRef: 'r1' })
       .expect(res => {
         expect(res.status).toBeGreaterThanOrEqual(200);

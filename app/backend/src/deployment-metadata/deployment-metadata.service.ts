@@ -7,6 +7,9 @@ import {
   DeploymentMetadataResponseDto,
 } from './dto/deployment-metadata.dto';
 
+/** Shape returned by Prisma for a full DeploymentMetadata row. */
+type DeploymentMetadataRecord = Prisma.DeploymentMetadataGetPayload<{}>;
+
 @Injectable()
 export class DeploymentMetadataService {
   private readonly logger = new Logger(DeploymentMetadataService.name);
@@ -135,7 +138,7 @@ export class DeploymentMetadataService {
   /**
    * Map Prisma model to response DTO
    */
-  private mapToResponse(metadata: any): DeploymentMetadataResponseDto {
+  private mapToResponse(metadata: DeploymentMetadataRecord): DeploymentMetadataResponseDto {
     return {
       id: metadata.id,
       contractName: metadata.contractName,

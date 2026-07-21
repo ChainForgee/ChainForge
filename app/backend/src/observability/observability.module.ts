@@ -5,10 +5,10 @@ import { MetricsModule } from './metrics/metrics.module';
 import { TracingService } from './tracing/tracing.service';
 import { UsageTrackerMiddleware } from './usage-tracker/usage-tracker.middleware';
 import { UsageTrackerModule } from './usage-tracker/usage-tracker.module';
-import { AuditModule } from '../../audit/audit.module';
+import { AuditModule } from 'src/audit/audit.module';
 
 @Module({
-  imports: [MetricsModule, HealthModule, UsageTrackerModule, AuditModule],
+  imports: [MetricsModule, HealthModule, UsageTrackerModule],
   providers: [TracingService],
   exports: [MetricsModule, HealthModule, TracingService, UsageTrackerModule],
 })

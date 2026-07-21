@@ -33,7 +33,7 @@ export class UsageTrackerMiddleware implements NestMiddleware {
       this.usageTracker
         .recordUsage(keyId, orgId, countryCode)
         .catch((err: Error) =>
-          this.logger.debug(
+          this.logger.warn(
             `Failed to record usage for key ${keyId}: ${err.message}`,
           ),
         );

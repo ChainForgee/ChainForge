@@ -18,3 +18,6 @@ export * from './streaming';
 
 // Budget
 export * from './budget/budget.service';
+
+// Money
+export * from './money/money-minor-units';

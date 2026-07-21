@@ -89,7 +89,10 @@ export class MoneyMinorUnits {
     }
 
     const padded = fracPart.padEnd(decimals, '0');
-    const combined = intPart.replace(/^0+/, '') || '0';
+    const negative = intPart.startsWith('-');
+    const absInt = negative ? intPart.slice(1) : intPart;
+    const stripped = absInt.replace(/^0+/, '') || '0';
+    const combined = (negative ? '-' : '') + stripped;
     const full = combined + padded;
 
     return new MoneyMinorUnits(BigInt(full), token);

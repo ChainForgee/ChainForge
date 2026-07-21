@@ -490,7 +490,6 @@ impl AidEscrow {
     ///
     /// # Errors
     /// Returns `Error::HandoverNotStarted` if no handover has been initiated.
-    /// Returns `Error::NotPendingAdmin` if caller is not the pending admin.
     /// Returns `Error::HandoverExpired` if the handover deadline has passed.
     pub fn accept_admin(env: Env) -> Result<(), Error> {
         let pending: Address = env
@@ -1905,15 +1904,15 @@ mod tests {
         client.rotate_admin(&new_admin, &deadline);
 
         // Pending admin should not yet be stored as admin
-        let stored_admin = client.get_admin();
+        let stored_admin: Address = client.get_admin();
         assert_eq!(
             stored_admin,
-            Ok(admin.clone()),
+            admin.clone(),
             "admin should still be the original before accept"
         );
         assert_ne!(
             stored_admin,
-            Ok(new_admin.clone()),
+            new_admin.clone(),
             "new_admin should not yet be the admin"
         );
 
@@ -1923,7 +1922,7 @@ mod tests {
         // Verify that get_admin() still returns the original admin.
         assert_eq!(
             client.get_admin(),
-            Ok(admin),
+            admin,
             "admin must remain unchanged until accept_admin"
         );
     }
@@ -1958,8 +1957,7 @@ mod tests {
     }
 
     #[test]
-    fn test_old_admin_cannot_pause_after_rotation() {
-        // Use a fresh env without mock_all_auths to verify real auth enforcement.
+    fn test_new_admin_can_pause_after_rotation() {
         let env = Env::default();
         env.ledger().with_mut(|li| li.timestamp = 1000);
 
@@ -1969,23 +1967,17 @@ mod tests {
         let admin = Address::generate(&env);
         let new_admin = Address::generate(&env);
 
-        // Init requires admin auth — use mock for bootstrap phase
         env.mock_all_auths();
         client.init(&admin);
         client.rotate_admin(&new_admin, &(1000 + 86400));
         client.accept_admin();
 
-        // Now verify storage: get_admin returns new_admin
-        assert_eq!(client.get_admin(), Ok(new_admin));
+        // Verify storage: admin is now new_admin
+        let stored: Address = client.get_admin();
+        assert_eq!(stored, new_admin, "admin must be rotated to new_admin");
 
-        // After rotation, calling pause() fetches admin from storage (new_admin)
-        // and requires its auth. With mock_all_auths still on, it passes.
-        // But the call goes through as new_admin, not old admin.
-        // Verify that the event or state reflects new admin, not old.
+        // New admin can pause
         let pause_result = client.try_pause();
-        // With mock_all_auths, pause succeeds because require_auth(new_admin) passes.
-        // This is correct — new_admin can pause.  The key assertion is that
-        // get_admin() is new_admin, not the old admin.
         assert!(pause_result.is_ok(), "new admin should be able to pause");
     }
 
@@ -2066,35 +2058,20 @@ mod tests {
     }
 
     #[test]
-    fn test_rotate_admin_not_callable_by_stranger() {
-        // Verify that a non-admin can't start a handover without mock auth.
-        let env = Env::default();
-        env.ledger().with_mut(|li| li.timestamp = 1000);
-
-        let contract_id = env.register(AidEscrow, ());
-        let client = AidEscrowClient::new(&env, &contract_id);
-
+    fn test_rotate_admin_sets_pending_admin() {
+        let (env, client) = setup();
         let admin = Address::generate(&env);
-        let stranger = Address::generate(&env);
+        let new_admin = Address::generate(&env);
 
-        // Bootstrap with mock auth
         env.mock_all_auths();
         client.init(&admin);
 
-        // Now try to rotate as stranger — with mock_all_auths this succeeds
-        // because require_auth(get_admin()) passes for any address.
-        // The real auth enforcement would only fail without mock auth.
-        // Verify at minimum that after a stranger calls rotate_admin:
-        // - get_admin() still returns the original admin
-        // - get_pending_admin() returns the new (stranger-set) address
-        // This is actually correct behavior because mock_all_auths treats
-        // the stranger as if they're the admin.
-        let deadline = 1000 + 86400;
-        let result = client.try_rotate_admin(&stranger, &deadline);
-        assert!(result.is_ok(), "mock_all_auths allows any address to impersonate admin");
+        let now = env.ledger().timestamp();
+        let deadline = now + 86400;
+        let result = client.try_rotate_admin(&new_admin, &deadline);
+        assert!(result.is_ok(), "rotate_admin should succeed when called by admin");
 
-        // Verify that the pending admin was set
         let pending = client.get_pending_admin();
-        assert_eq!(pending, Some(stranger));
+        assert_eq!(pending, Some(new_admin));
     }
 }

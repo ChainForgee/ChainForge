@@ -1,6 +1,6 @@
 import { CsrfMiddleware, generateCsrfToken, CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from '../csrf.middleware';
 import { ConfigService } from '@nestjs/config';
-import type { Request, Response, NextFunction } from 'express';
+import type { Request, Response } from 'express';
 
 const createMockConfig = (csrfEnabled: string, nodeEnv = 'test'): jest.Mocked<ConfigService> =>
   ({

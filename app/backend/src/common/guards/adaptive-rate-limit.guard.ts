@@ -9,6 +9,17 @@ import {
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import { Request } from 'express';
 
+/** Extended request shape with fields added by auth guards. */
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id?: string;
+    authType?: string;
+    apiKeyId?: string;
+  };
+  path?: string;
+  ips?: string | string[];
+}
+
 @Injectable()
 export class AdaptiveRateLimitGuard implements CanActivate {
   private readonly logger = new Logger(AdaptiveRateLimitGuard.name);
@@ -30,7 +41,7 @@ export class AdaptiveRateLimitGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<Request>();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const strategy = this.getStrategy(request);
     const { limit, window } = this.limits[strategy];
     const identifier = this.getIdentifier(request);
@@ -64,11 +75,11 @@ export class AdaptiveRateLimitGuard implements CanActivate {
     return true;
   }
 
-  private getStrategy(request: Request): keyof typeof this.limits {
-    const path = (request as any).path ?? (request as any).url ?? '';
+  private getStrategy(request: AuthenticatedRequest): keyof typeof this.limits {
+    const path = request.path ?? request.url ?? '';
     if (path.includes('/search')) return 'search';
 
-    const user = (request as any).user;
+    const user = request.user;
     if (user) {
       if (user.authType === 'apiKey' || user.authType === 'envApiKey') {
         return 'apiKey';
@@ -79,14 +90,14 @@ export class AdaptiveRateLimitGuard implements CanActivate {
     return 'public';
   }
 
-  private getIdentifier(request: Request): string {
-    const user = (request as any).user;
-    if (user?.id) return user.id as string;
-    if (user?.apiKeyId) return user.apiKeyId as string;
+  private getIdentifier(request: AuthenticatedRequest): string {
+    const user = request.user;
+    if (user?.id) return user.id;
+    if (user?.apiKeyId) return user.apiKeyId;
 
-    const ips = (request as any).ips;
+    const ips = request.ips;
     const forwardedIp =
-      Array.isArray(ips) && ips.length > 0 ? (ips[0] as string) : undefined;
+      Array.isArray(ips) && ips.length > 0 ? ips[0] : undefined;
     return forwardedIp ?? request.ip ?? 'anonymous';
   }
 }

@@ -89,7 +89,7 @@ export class CancelAndReissueService {
           claimId: id,
           eventType: 'unlock',
           // Negative amount: this entry reduces the total locked balance
-          amount: -claim.amount,
+          amount: -Number(claim.amount),
           note: `Claim ${id} cancelled by ${dto.operatorId}. Reason: ${dto.reason ?? 'none'}`,
         },
       });
@@ -185,7 +185,7 @@ export class CancelAndReissueService {
             campaignId: original.campaignId,
             claimId: originalId,
             eventType: 'unlock',
-            amount: -original.amount,
+            amount: -Number(original.amount),
             note: `Claim ${originalId} cancelled for reissue by ${dto.operatorId}`,
           },
         });
@@ -330,13 +330,13 @@ export class CancelAndReissueService {
 
     for (const entry of ledger) {
       if (entry.eventType === 'lock' || entry.eventType === 'unlock') {
-        lockedAmount += entry.amount; // unlock entries have negative amounts
+        lockedAmount += Number(entry.amount); // unlock entries have negative amounts
       } else if (entry.eventType === 'disburse') {
-        disbursedAmount += entry.amount;
+        disbursedAmount += Number(entry.amount);
       }
     }
 
-    const availableBudget = campaign.budget - lockedAmount - disbursedAmount;
+    const availableBudget = Number(campaign.budget) - lockedAmount - disbursedAmount;
 
     return {
       campaignId,

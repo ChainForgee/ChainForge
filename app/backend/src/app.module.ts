@@ -1,181 +1,73 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { BullModule } from '@nestjs/bullmq';
-import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
-import { ScheduleModule } from '@nestjs/schedule';
-import { loadEnv } from './common/utils/env-loader';
+import { Logger, MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { AidModule } from './aid/aid.module';
-import { HealthModule } from './health/health.module';
-import { PrismaModule } from './prisma/prisma.module';
-import { VerificationModule } from './verification/verification.module';
-import { TestErrorModule } from './test-error/test-error.module';
+import { FeatureModuleRegistry } from './feature-modules.registry';
 import { LoggerModule } from './logger/logger.module';
-import { AuditModule } from './audit/audit.module';
-import { NotificationsModule } from './notifications/notifications.module';
-import { JobsModule } from './jobs/jobs.module';
-import { RequestCorrelationMiddleware } from './middleware/request-correlation.middleware';
-import { SecurityModule } from './common/security/security.module';
-import { CampaignsModule } from './campaigns/campaigns.module';
-import { APP_GUARD } from '@nestjs/core';
+
+import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ApiKeyGuard } from './common/guards/api-key.guard';
 import { RolesGuard } from './auth/roles.guard';
-import { ObservabilityModule } from './observability/observability.module';
-import { ClaimsModule } from './claims/claims.module';
-import { LoggingInterceptor } from './interceptors/logging.interceptor';
-import { LoggerService } from './logger/logger.service';
-import { AllExceptionsFilter } from './common/filters/http-exception.filter';
-import { AnalyticsModule } from './analytics/analytics.module';
-import { ThrottlerModule } from '@nestjs/throttler';
-import { AidEscrowModule } from './onchain/aid-escrow.module';
-import { ApiKeysModule } from './api-keys/api-keys.module';
-import { SessionModule } from './session/session.module';
-import { CommonServicesModule } from './common/services/common-services.module';
-import { EvidenceModule } from './evidence/evidence.module';
-import { RetentionPolicyModule } from './retention-policy/retention-policy.module';
-import { InvitesModule } from './orgs/invites.module';
-import { AdminSearchModule } from './search/admin-search.module';
-import { EntityLinkingModule } from './entity-linking/entity-linking.module';
-import { DeploymentMetadataModule } from './deployment-metadata/deployment-metadata.module';
-import { RedisModule } from '@liaoliaots/nestjs-redis';
 import { AdaptiveRateLimitGuard } from './common/guards/adaptive-rate-limit.guard';
 import { DeprecationInterceptor } from './common/interceptors/deprecation.interceptor';
 import { HttpCacheInterceptor } from './common/interceptors/http-cache.interceptor';
 import { PaginationInterceptor } from './common/interceptors/pagination.interceptor';
-import { SandboxModule } from './sandbox/sandbox.module';
+import { LoggingInterceptor } from './interceptors/logging.interceptor';
+import { RequestCorrelationMiddleware } from './middleware/request-correlation.middleware';
 
+/**
+ * Top-level application module.
+ *
+ * All first-party feature modules and infrastructure ``forRoot(...)``
+ * factories are wired through {@link FeatureModuleRegistry}; this file
+ * only declares the controllers, global guards, filters and
+ * interceptors that span every route.  The split keeps the import
+ * graph reviewable (one diff for every new module, plenty of unit-test
+ * surface) and means a unit test of any single module can stand it up
+ * without pulling in the rest of the application (Issue #256).
+ *
+ * Note: this module does NOT inject {@link LoggerService} from the
+ * bespoke ``logger`` package.  The bespoke service lives behind a
+ * factory-consumer pair that used to be imported directly here, and
+ * removing the constructor dependency keeps the test surface clean
+ * (``Test.createTestingModule({imports: [AppModule]}).compile()`` now
+ * resolves cleanly without spinning up every module in the registry).
+ * The startup banner uses NestJS's built-in ``Logger`` which is
+ * available without DI and follows Nest conventions.
+ */
 @Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: loadEnv(),
-    }),
-
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          host: configService.get<string>('REDIS_HOST') ?? 'localhost',
-          port: parseInt(configService.get<string>('REDIS_PORT') ?? '6379', 10),
-        },
-        defaultJobOptions: {
-          attempts: 3,
-          backoff: {
-            type: 'exponential',
-            delay: 5000,
-          },
-          removeOnComplete: {
-            age: 3600, // keep for 1 hour
-            count: 1000,
-          },
-          removeOnFail: {
-            age: 24 * 3600, // keep for 24 hours
-            count: 5000,
-          },
-        },
-      }),
-      inject: [ConfigService],
-    }),
-    ScheduleModule.forRoot(),
-
-    LoggerModule,
-    PrismaModule,
-    HealthModule,
-    AidModule,
-    VerificationModule,
-    AuditModule,
-    SecurityModule,
-    TestErrorModule,
-    CampaignsModule,
-    ObservabilityModule,
-    ClaimsModule,
-    NotificationsModule,
-    JobsModule,
-    AnalyticsModule,
-    AidEscrowModule,
-    ApiKeysModule,
-    SessionModule,
-    CommonServicesModule,
-    EvidenceModule,
-    RetentionPolicyModule,
-    InvitesModule,
-    AdminSearchModule,
-    EntityLinkingModule,
-    DeploymentMetadataModule,
-    SandboxModule,
-    RedisModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        config: {
-          host: configService.get<string>('REDIS_HOST') ?? 'localhost',
-          port: parseInt(configService.get<string>('REDIS_PORT') ?? '6379', 10),
-        },
-      }),
-      inject: [ConfigService],
-    }),
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60000, // 60 seconds window
-        limit: 20, // default: 20 req/min
-      },
-    ]),
-  ],
-
+  // LoggerModule is wired as a *direct* sibling import alongside
+  // ``FeatureModuleRegistry`` because the bespoke ``AllExceptionsFilter``
+  // (registered below as APP_FILTER) injects ``LoggerService`` and the
+  // DI container needs the LoggerModule export chain to be reachable
+  // from AppModule's scope.  Nested-DynamicModule imports in NestJS do
+  // not always hoist exported providers reliably across test fixtures,
+  // so an explicit sibling import is the most defensive approach.
+  imports: [LoggerModule, FeatureModuleRegistry.forRoot()],
   controllers: [AppController],
   providers: [
     AppService,
-    {
-      provide: APP_FILTER,
-      useClass: AllExceptionsFilter,
-    },
-    {
-      provide: APP_GUARD,
-      useClass: ApiKeyGuard, // runs first — authenticates and sets request.user
-    },
-    {
-      provide: APP_GUARD,
-      useClass: RolesGuard, // runs second — checks request.user.role against @Roles()
-    },
-    {
-      provide: APP_GUARD,
-      useClass: AdaptiveRateLimitGuard, // Adaptive rate limiting using Redis
-    },
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: LoggingInterceptor,
-    },
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: DeprecationInterceptor,
-    },
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: PaginationInterceptor,
-    },
-    {
-      provide: APP_INTERCEPTOR,
-      // Registered last so it runs closest to the route handler and
-      // observes the raw response body for ETag computation.
-      useClass: HttpCacheInterceptor,
-    },
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    // ApiKeyGuard before RolesGuard so request.user is populated.
+    { provide: APP_GUARD, useClass: ApiKeyGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: AdaptiveRateLimitGuard },
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: DeprecationInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: PaginationInterceptor },
+    // HttpCacheInterceptor runs closest to the route handler to
+    // observe the raw response body for ETag computation.
+    { provide: APP_INTERCEPTOR, useClass: HttpCacheInterceptor },
   ],
 })
 export class AppModule implements NestModule {
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly loggerService: LoggerService,
-  ) {}
+  private readonly logger = new Logger(AppModule.name);
 
   configure(consumer: MiddlewareConsumer): void {
-    // Request correlation middleware
     consumer.apply(RequestCorrelationMiddleware).forRoutes('*');
-
-    // Startup log
-    this.loggerService.log(
+    this.logger.log(
       'AppModule initialized with structured logging, correlation IDs, and rate limiting',
-      'AppModule',
     );
   }
 }

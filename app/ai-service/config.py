@@ -43,6 +43,17 @@ class Settings(BaseSettings):
             '/hooks/') match any path with that prefix. The built-in
             infrastructure defaults (/health, /, /ai/metrics, /docs,
             /redoc, /openapi.json) are always merged in.
+        PII_DECISIONS_ENABLED: When truthy, every successful anonymize()
+            call writes an aggregate audit record to the PII decisions
+            store. Default: false (opt-in so routine tests don't have to
+            clean up rows).
+        PII_DECISIONS_DB_PATH: Filesystem path to the SQLite file backing
+            the PII decisions store. Parent directories are created on
+            first write. Default: ./data/pii_decisions.db.
+        PII_DECISIONS_RETENTION_DAYS: Number of days a decision record
+            survives before the periodic sweeper removes it. Default: 30.
+        PII_DECISIONS_SWEEP_INTERVAL_SECONDS: How often the in-process
+            retention sweep runs. Default: 3600 (1 hour).
     """
 
     # API Keys
@@ -86,6 +97,14 @@ class Settings(BaseSettings):
     # Health probes, metrics scrape, and OpenAPI/docs endpoints are
     # always appended so operators cannot accidentally expose themselves.
     request_body_bypass_paths: str = ""
+
+    # PII decisions persistence (Issue #274). Disabled by default so that
+    # the store is opt-in for tests; the runtime behaviour of
+    # /v1/ai/anonymize is unchanged when disabled.
+    pii_decisions_enabled: bool = False
+    pii_decisions_db_path: str = "./data/pii_decisions.db"
+    pii_decisions_retention_days: int = 30
+    pii_decisions_sweep_interval_seconds: int = 3600
 
     # Legacy route deprecation/retirement date (Sunset header)
     legacy_retirement_date: str = "Wed, 01 Oct 2026 00:00:00 GMT"

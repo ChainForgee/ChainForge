@@ -3,14 +3,19 @@ import { HealthModule } from 'src/health/health.module';
 import { MetricsMiddleware } from './metrics/metrics.middleware';
 import { MetricsModule } from './metrics/metrics.module';
 import { TracingService } from './tracing/tracing.service';
+import { UsageTrackerMiddleware } from './usage-tracker/usage-tracker.middleware';
+import { UsageTrackerModule } from './usage-tracker/usage-tracker.module';
+import { AuditModule } from '../../audit/audit.module';
 
 @Module({
-  imports: [MetricsModule, HealthModule],
+  imports: [MetricsModule, HealthModule, UsageTrackerModule, AuditModule],
   providers: [TracingService],
-  exports: [MetricsModule, HealthModule, TracingService],
+  exports: [MetricsModule, HealthModule, TracingService, UsageTrackerModule],
 })
 export class ObservabilityModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(MetricsMiddleware).forRoutes('*'); // Apply to all routes
+    consumer
+      .apply(MetricsMiddleware, UsageTrackerMiddleware)
+      .forRoutes('*');
   }
 }

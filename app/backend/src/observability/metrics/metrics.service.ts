@@ -47,6 +47,8 @@ export class MetricsService {
     public emailDeliveryCounter: Counter<string>,
     @InjectMetric('email_delivery_duration_seconds')
     public emailDeliveryDuration: Histogram<string>,
+    @InjectMetric('security_event_total')
+    public securityEventCounter: Counter<string>,
   ) {}
 
   /**
@@ -236,6 +238,13 @@ export class MetricsService {
    */
   incrementAnalyticsCacheInvalidation(reason: string): void {
     this.analyticsCacheInvalidationsCounter.inc({ reason });
+  }
+
+  /**
+   * Increment the security event counter.
+   */
+  incrementSecurityEvent(kind: string): void {
+    this.securityEventCounter.inc({ kind });
   }
 
   /**

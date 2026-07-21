@@ -133,6 +133,13 @@ export const metricsProviders = [
     buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
   }),
 
+  // Security Event Metrics
+  makeCounterProvider({
+    name: 'security_event_total',
+    help: 'Total number of security events, partitioned by kind',
+    labelNames: ['kind'],
+  }),
+
   // Analytics Cache Metrics
   makeCounterProvider({
     name: 'analytics_cache_hits_total',

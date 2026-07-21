@@ -124,7 +124,7 @@ export class UsageTrackerService {
       }
 
       if (countries.size > ANOMALY_COUNTRY_THRESHOLD) {
-        const orgId = await this.resolveOrgId(keyId);
+        const orgId = this.resolveOrgId(keyId);
         anomalies.push({
           keyId,
           orgId,

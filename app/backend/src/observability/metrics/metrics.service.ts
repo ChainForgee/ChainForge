@@ -47,6 +47,8 @@ export class MetricsService {
     public emailDeliveryCounter: Counter<string>,
     @InjectMetric('email_delivery_duration_seconds')
     public emailDeliveryDuration: Histogram<string>,
+    @InjectMetric('security_event_total')
+    public securityEventCounter: Counter<string>,
   ) {}
 
   /**
@@ -251,5 +253,12 @@ export class MetricsService {
     if (status === 'failed') {
       this.errorRateCounter.inc({ error_type: 'email_delivery_failure' });
     }
+  }
+
+  /**
+   * Increment the security event counter for API key anomalies.
+   */
+  incrementSecurityEvent(kind: string, keyId: string, orgId: string): void {
+    this.securityEventCounter.inc({ kind, key_id: keyId, org_id: orgId });
   }
 }

@@ -128,5 +128,7 @@
   ["src/verification/verification-inbox.service.ts",-21,-12,-4,-21],
   ["src/verification/verification.controller.ts",-14,-15,-12,-14],
   ["src/verification/verification.processor.ts",100,-8,100,100],
-  ["src/verification/verification.service.ts",-69,-51,-15,-69]
+  ["src/verification/verification.service.ts",-69,-51,-15,-69],
+  ["src/jobs/security-event.job.ts",-8,-5,100,100],
+  ["src/observability/usage-tracker/api-key-usage-tracker.service.ts",-124,-39,-3,-159]
 ]

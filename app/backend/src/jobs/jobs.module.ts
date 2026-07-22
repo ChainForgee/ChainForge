@@ -3,6 +3,9 @@ import { BullModule } from '@nestjs/bullmq';
 import { JobsController } from './jobs.controller';
 import { RETENTION_PURGE_QUEUE } from '../retention-policy/retention-purge.processor';
 import { DlqService } from './dlq.service';
+import { SecurityEventJob } from './security-event.job';
+import { UsageTrackerModule } from '../observability/usage-tracker/usage-tracker.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -11,9 +14,11 @@ import { DlqService } from './dlq.service';
     BullModule.registerQueue({ name: 'onchain' }),
     BullModule.registerQueue({ name: RETENTION_PURGE_QUEUE }),
     BullModule.registerQueue({ name: 'dead-letter' }),
+    UsageTrackerModule,
+    AuditModule,
   ],
   controllers: [JobsController],
-  providers: [DlqService],
-  exports: [DlqService],
+  providers: [DlqService, SecurityEventJob],
+  exports: [DlqService, SecurityEventJob],
 })
 export class JobsModule {}

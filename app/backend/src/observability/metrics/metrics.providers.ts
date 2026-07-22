@@ -149,4 +149,11 @@ export const metricsProviders = [
     help: 'Total number of analytics cache invalidations',
     labelNames: ['reason'],
   }),
+
+  // Security Metrics
+  makeCounterProvider({
+    name: 'security_event_total',
+    help: 'Total number of security events detected (e.g. API key anomalies)',
+    labelNames: ['kind', 'key_id', 'org_id'],
+  }),
 ];

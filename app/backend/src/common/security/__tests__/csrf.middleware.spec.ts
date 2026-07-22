@@ -1,8 +1,16 @@
-import { CsrfMiddleware, generateCsrfToken, CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from '../csrf.middleware';
+import {
+  CsrfMiddleware,
+  generateCsrfToken,
+  CSRF_COOKIE_NAME,
+  CSRF_HEADER_NAME,
+} from '../csrf.middleware';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 
-const createMockConfig = (csrfEnabled: string, nodeEnv = 'test'): jest.Mocked<ConfigService> =>
+const createMockConfig = (
+  csrfEnabled: string,
+  nodeEnv = 'test',
+): jest.Mocked<ConfigService> =>
   ({
     get: jest.fn(<T = any>(key: string, defaultValue?: T): T | undefined => {
       if (key === 'CSRF_PROTECTION_ENABLED') return csrfEnabled as unknown as T;
@@ -25,7 +33,12 @@ const createReq = (overrides: Partial<Request> = {}): Partial<Request> => {
 const createRes = (): Partial<Response> => {
   const res: Partial<Response> & { headers: Record<string, string> } = {
     headers: {},
-    cookie: jest.fn().mockImplementation(function(this: any, name: string, _val: string, _opts?: any) {
+    cookie: jest.fn().mockImplementation(function (
+      this: any,
+      name: string,
+      _val: string,
+      _opts?: any,
+    ) {
       this.headers[name] = _val;
     }),
     status: jest.fn().mockReturnThis(),
@@ -56,7 +69,11 @@ describe('CsrfMiddleware', () => {
       const res = createRes() as Response;
       const next = createNext();
       middleware.use(req, res, next);
-      expect(res.cookie).toHaveBeenCalledWith(CSRF_COOKIE_NAME, expect.any(String), expect.objectContaining({ httpOnly: true, path: '/' }));
+      expect(res.cookie).toHaveBeenCalledWith(
+        CSRF_COOKIE_NAME,
+        expect.any(String),
+        expect.objectContaining({ httpOnly: false, path: '/' }),
+      );
       expect(next).toHaveBeenCalled();
     });
   });
@@ -69,7 +86,11 @@ describe('CsrfMiddleware', () => {
       const res = createRes() as Response;
       const next = createNext();
       middleware.use(req, res, next);
-      expect(res.cookie).toHaveBeenCalledWith(CSRF_COOKIE_NAME, expect.any(String), expect.any(Object));
+      expect(res.cookie).toHaveBeenCalledWith(
+        CSRF_COOKIE_NAME,
+        expect.any(String),
+        expect.any(Object),
+      );
       expect(next).toHaveBeenCalled();
     });
 
@@ -77,23 +98,36 @@ describe('CsrfMiddleware', () => {
       const config = createMockConfig('true');
       const middleware = new CsrfMiddleware(config as unknown as ConfigService);
       const existingToken = generateCsrfToken();
-      const req = createReq({ method: 'GET', cookies: { [CSRF_COOKIE_NAME]: existingToken } }) as Request;
+      const req = createReq({
+        method: 'GET',
+        cookies: { [CSRF_COOKIE_NAME]: existingToken },
+      }) as Request;
       const res = createRes() as Response;
       const next = createNext();
       middleware.use(req, res, next);
-      expect(res.cookie).toHaveBeenCalledWith(CSRF_COOKIE_NAME, existingToken, expect.any(Object));
+      expect(res.cookie).toHaveBeenCalledWith(
+        CSRF_COOKIE_NAME,
+        existingToken,
+        expect.any(Object),
+      );
       expect(next).toHaveBeenCalled();
     });
 
     it('should return 403 on POST when cookie is missing', () => {
       const config = createMockConfig('true');
       const middleware = new CsrfMiddleware(config as unknown as ConfigService);
-      const req = createReq({ method: 'POST', cookies: {}, headers: { [CSRF_HEADER_NAME]: 'some-token' } }) as Request;
+      const req = createReq({
+        method: 'POST',
+        cookies: {},
+        headers: { [CSRF_HEADER_NAME]: 'some-token' },
+      }) as Request;
       const res = createRes() as Response;
       const next = createNext();
       middleware.use(req, res, next);
       expect(res.status).toHaveBeenCalledWith(403);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'CSRF token missing' }));
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'CSRF token missing' }),
+      );
       expect(next).not.toHaveBeenCalled();
     });
 
@@ -101,19 +135,29 @@ describe('CsrfMiddleware', () => {
       const config = createMockConfig('true');
       const middleware = new CsrfMiddleware(config as unknown as ConfigService);
       const token = generateCsrfToken();
-      const req = createReq({ method: 'POST', cookies: { [CSRF_COOKIE_NAME]: token }, headers: {} }) as Request;
+      const req = createReq({
+        method: 'POST',
+        cookies: { [CSRF_COOKIE_NAME]: token },
+        headers: {},
+      }) as Request;
       const res = createRes() as Response;
       const next = createNext();
       middleware.use(req, res, next);
       expect(res.status).toHaveBeenCalledWith(403);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'CSRF token missing' }));
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'CSRF token missing' }),
+      );
       expect(next).not.toHaveBeenCalled();
     });
 
     it('should return 403 on POST when tokens do not match', () => {
       const config = createMockConfig('true');
       const middleware = new CsrfMiddleware(config as unknown as ConfigService);
-      const req = createReq({ method: 'POST', cookies: { [CSRF_COOKIE_NAME]: generateCsrfToken() }, headers: { [CSRF_HEADER_NAME]: 'different-token-value' } }) as Request;
+      const req = createReq({
+        method: 'POST',
+        cookies: { [CSRF_COOKIE_NAME]: generateCsrfToken() },
+        headers: { [CSRF_HEADER_NAME]: 'different-token-value' },
+      }) as Request;
       const res = createRes() as Response;
       const next = createNext();
       middleware.use(req, res, next);
@@ -125,7 +169,11 @@ describe('CsrfMiddleware', () => {
       const config = createMockConfig('true');
       const middleware = new CsrfMiddleware(config as unknown as ConfigService);
       const token = generateCsrfToken();
-      const req = createReq({ method: 'POST', cookies: { [CSRF_COOKIE_NAME]: token }, headers: { [CSRF_HEADER_NAME]: token } }) as Request;
+      const req = createReq({
+        method: 'POST',
+        cookies: { [CSRF_COOKIE_NAME]: token },
+        headers: { [CSRF_HEADER_NAME]: token },
+      }) as Request;
       const res = createRes() as Response;
       const next = createNext();
       middleware.use(req, res, next);
@@ -137,7 +185,11 @@ describe('CsrfMiddleware', () => {
       const config = createMockConfig('true');
       const middleware = new CsrfMiddleware(config as unknown as ConfigService);
       const token = generateCsrfToken();
-      const req = createReq({ method: 'DELETE', cookies: { [CSRF_COOKIE_NAME]: token }, headers: { [CSRF_HEADER_NAME]: token } }) as Request;
+      const req = createReq({
+        method: 'DELETE',
+        cookies: { [CSRF_COOKIE_NAME]: token },
+        headers: { [CSRF_HEADER_NAME]: token },
+      }) as Request;
       const res = createRes() as Response;
       const next = createNext();
       middleware.use(req, res, next);

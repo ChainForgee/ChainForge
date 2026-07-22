@@ -478,7 +478,9 @@ impl AidEscrow {
         }
 
         env.storage().instance().set(&KEY_PENDING_ADMIN, &new_admin);
-        env.storage().instance().set(&KEY_HANDOVER_DEADLINE, &deadline);
+        env.storage()
+            .instance()
+            .set(&KEY_HANDOVER_DEADLINE, &deadline);
         Ok(())
     }
 
@@ -1950,8 +1952,7 @@ mod tests {
 
         let pending = client.get_pending_admin();
         assert_eq!(
-            pending,
-            None,
+            pending, None,
             "pending_admin should be cleared after accept"
         );
     }
@@ -2069,7 +2070,10 @@ mod tests {
         let now = env.ledger().timestamp();
         let deadline = now + 86400;
         let result = client.try_rotate_admin(&new_admin, &deadline);
-        assert!(result.is_ok(), "rotate_admin should succeed when called by admin");
+        assert!(
+            result.is_ok(),
+            "rotate_admin should succeed when called by admin"
+        );
 
         let pending = client.get_pending_admin();
         assert_eq!(pending, Some(new_admin));

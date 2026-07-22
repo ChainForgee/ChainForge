@@ -48,11 +48,12 @@ export class CsrfMiddleware implements NestMiddleware {
   };
 
   constructor(config: ConfigService) {
-    this.enabled = config.get<string>('CSRF_PROTECTION_ENABLED', 'false') === 'true';
+    this.enabled =
+      config.get<string>('CSRF_PROTECTION_ENABLED', 'false') === 'true';
     const isProduction = config.get<string>('NODE_ENV') === 'production';
 
     this.cookieOptions = {
-      httpOnly: false,  // Client-side JS must read via document.cookie to set X-CSRF-Token header
+      httpOnly: false, // Client-side JS must read via document.cookie to set X-CSRF-Token header
       sameSite: isProduction ? 'strict' : 'lax',
       secure: isProduction,
       path: '/',
@@ -81,14 +82,22 @@ export class CsrfMiddleware implements NestMiddleware {
     if (SAFE_METHODS.has(method)) {
       // Ensure every response carries a token cookie for subsequent
       // state-changing requests issued by the same origin.
-      const existing = (req.cookies as Record<string, string>)?.[CSRF_COOKIE_NAME] as string | undefined;
-      res.cookie(CSRF_COOKIE_NAME, existing ?? generateCsrfToken(), this.cookieOptions);
+      const existing = (req.cookies as Record<string, string>)?.[
+        CSRF_COOKIE_NAME
+      ] as string | undefined;
+      res.cookie(
+        CSRF_COOKIE_NAME,
+        existing ?? generateCsrfToken(),
+        this.cookieOptions,
+      );
       next();
       return;
     }
 
     if (STATE_CHANGING_METHODS.has(method)) {
-      const cookieToken = (req.cookies as Record<string, string>)?.[CSRF_COOKIE_NAME] as string | undefined;
+      const cookieToken = (req.cookies as Record<string, string>)?.[
+        CSRF_COOKIE_NAME
+      ] as string | undefined;
       const headerToken = req.headers[CSRF_HEADER_NAME] as string | undefined;
 
       if (!cookieToken || !headerToken) {

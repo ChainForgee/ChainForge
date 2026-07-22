@@ -9,6 +9,12 @@ import { OnchainAdapter } from './onchain.adapter';
 import { MockOnchainAdapter } from './onchain.adapter.mock';
 import { SorobanAdapter } from './soroban.adapter';
 import { PrismaModule } from '../prisma/prisma.module';
+import { UsageTrackerService } from '../observability/usage-tracker/usage-tracker.service';
+
+const mockUsageTrackerService = {
+  recordUsage: jest.fn(),
+  detectAndReportAnomalies: jest.fn().mockResolvedValue([]),
+};
 
 describe('OnchainModule', () => {
   let module: TestingModule;
@@ -23,7 +29,10 @@ describe('OnchainModule', () => {
         PrismaModule,
         OnchainModule,
       ],
-    }).compile();
+    })
+      .overrideProvider(UsageTrackerService)
+      .useValue(mockUsageTrackerService)
+      .compile();
 
     _configService = module.get<ConfigService>(ConfigService);
   });

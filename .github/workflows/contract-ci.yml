@@ -40,7 +40,7 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           git fetch origin "${{ github.base_ref }}" --depth=100
-          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- app/onchain/Cargo.toml app/onchain/Cargo.lock)"
+          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}" HEAD -- app/onchain/Cargo.toml app/onchain/Cargo.lock)"
           if echo "$changed_files" | grep -q '^app/onchain/Cargo.toml$' && ! echo "$changed_files" | grep -q '^app/onchain/Cargo.lock$'; then
             echo "Cargo.toml changed without updating Cargo.lock."
             exit 1

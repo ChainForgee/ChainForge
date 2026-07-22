@@ -191,7 +191,13 @@ fn run_sequence(ops: std::vec::Vec<Op>) {
                 let metadata = Map::new(&env);
                 if client
                     .try_create_package(
-                        &admin, &id, &recipient, &amount, &token_addr, &0, &metadata,
+                        &admin,
+                        &id,
+                        &recipient,
+                        &amount,
+                        &token_addr,
+                        &0,
+                        &metadata,
                     )
                     .is_ok()
                 {
@@ -300,7 +306,14 @@ proptest! {
 // Smoke tests: invariant asserted at each bookkeeping call
 // ---------------------------------------------------------------------------
 
-fn setup() -> (Env, AidEscrowClient<'static>, TokenClient<'static>, Address, Address, Address) {
+fn setup() -> (
+    Env,
+    AidEscrowClient<'static>,
+    TokenClient<'static>,
+    Address,
+    Address,
+    Address,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -337,7 +350,13 @@ fn smoke_create_increases_locked() {
     let before = client.get_total_locked(&token_addr);
 
     client.create_package(
-        &admin, &1, &recipient, &(3 * UNIT), &token_addr, &0, &Map::new(&env),
+        &admin,
+        &1,
+        &recipient,
+        &(3 * UNIT),
+        &token_addr,
+        &0,
+        &Map::new(&env),
     );
 
     assert_eq!(client.get_total_locked(&token_addr), before + 3 * UNIT);
@@ -350,7 +369,13 @@ fn smoke_claim_moves_locked_to_claimed() {
 
     client.fund(&token_addr, &admin, &(10 * UNIT));
     client.create_package(
-        &admin, &1, &recipient, &(4 * UNIT), &token_addr, &0, &Map::new(&env),
+        &admin,
+        &1,
+        &recipient,
+        &(4 * UNIT),
+        &token_addr,
+        &0,
+        &Map::new(&env),
     );
 
     let before_locked = client.get_total_locked(&token_addr);
@@ -358,10 +383,23 @@ fn smoke_claim_moves_locked_to_claimed() {
 
     client.claim(&1);
 
-    assert_eq!(client.get_total_locked(&token_addr), before_locked - 4 * UNIT);
-    assert_eq!(client.get_total_claimed(&token_addr), before_claimed + 4 * UNIT);
+    assert_eq!(
+        client.get_total_locked(&token_addr),
+        before_locked - 4 * UNIT
+    );
+    assert_eq!(
+        client.get_total_claimed(&token_addr),
+        before_claimed + 4 * UNIT
+    );
     assert_eq!(tkn.balance(&recipient), 4 * UNIT);
-    assert_invariants(&env, &client, &client.address, &token_addr, 10 * UNIT, 4 * UNIT);
+    assert_invariants(
+        &env,
+        &client,
+        &client.address,
+        &token_addr,
+        10 * UNIT,
+        4 * UNIT,
+    );
 }
 
 #[test]
@@ -370,15 +408,31 @@ fn smoke_disburse_transfers_to_recipient() {
 
     client.fund(&token_addr, &admin, &(10 * UNIT));
     client.create_package(
-        &admin, &1, &recipient, &(5 * UNIT), &token_addr, &0, &Map::new(&env),
+        &admin,
+        &1,
+        &recipient,
+        &(5 * UNIT),
+        &token_addr,
+        &0,
+        &Map::new(&env),
     );
 
     let before_locked = client.get_total_locked(&token_addr);
     client.disburse(&1);
 
-    assert_eq!(client.get_total_locked(&token_addr), before_locked - 5 * UNIT);
+    assert_eq!(
+        client.get_total_locked(&token_addr),
+        before_locked - 5 * UNIT
+    );
     assert_eq!(tkn.balance(&recipient), 5 * UNIT);
-    assert_invariants(&env, &client, &client.address, &token_addr, 10 * UNIT, 5 * UNIT);
+    assert_invariants(
+        &env,
+        &client,
+        &client.address,
+        &token_addr,
+        10 * UNIT,
+        5 * UNIT,
+    );
 }
 
 #[test]
@@ -387,13 +441,22 @@ fn smoke_revoke_unlocks_without_transfer() {
 
     client.fund(&token_addr, &admin, &(10 * UNIT));
     client.create_package(
-        &admin, &1, &recipient, &(6 * UNIT), &token_addr, &0, &Map::new(&env),
+        &admin,
+        &1,
+        &recipient,
+        &(6 * UNIT),
+        &token_addr,
+        &0,
+        &Map::new(&env),
     );
 
     let before_locked = client.get_total_locked(&token_addr);
     client.revoke(&1);
 
-    assert_eq!(client.get_total_locked(&token_addr), before_locked - 6 * UNIT);
+    assert_eq!(
+        client.get_total_locked(&token_addr),
+        before_locked - 6 * UNIT
+    );
     assert_eq!(tkn.balance(&recipient), 0);
     assert_invariants(&env, &client, &client.address, &token_addr, 10 * UNIT, 0);
 }
@@ -408,7 +471,13 @@ fn smoke_refund_transfers_back_to_admin() {
     env.ledger().set_timestamp(start);
     let expiry = start + 100;
     client.create_package(
-        &admin, &1, &recipient, &(7 * UNIT), &token_addr, &expiry, &Map::new(&env),
+        &admin,
+        &1,
+        &recipient,
+        &(7 * UNIT),
+        &token_addr,
+        &expiry,
+        &Map::new(&env),
     );
 
     env.ledger().set_timestamp(expiry + 1);
@@ -417,7 +486,14 @@ fn smoke_refund_transfers_back_to_admin() {
     client.refund(&1);
 
     assert_eq!(tkn.balance(&admin), admin_before + 7 * UNIT);
-    assert_invariants(&env, &client, &client.address, &token_addr, 10 * UNIT, 7 * UNIT);
+    assert_invariants(
+        &env,
+        &client,
+        &client.address,
+        &token_addr,
+        10 * UNIT,
+        7 * UNIT,
+    );
 }
 
 #[test]
@@ -430,5 +506,12 @@ fn smoke_withdraw_surplus() {
     client.withdraw_surplus(&admin, &(7 * UNIT), &token_addr);
 
     assert_eq!(tkn.balance(&admin), admin_before + 7 * UNIT);
-    assert_invariants(&env, &client, &client.address, &token_addr, 10 * UNIT, 7 * UNIT);
+    assert_invariants(
+        &env,
+        &client,
+        &client.address,
+        &token_addr,
+        10 * UNIT,
+        7 * UNIT,
+    );
 }

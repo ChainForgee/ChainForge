@@ -40,6 +40,9 @@ const KEY_PAUSE_WITHDRAW: Symbol = symbol_short!("p_wdrw");
 const KEY_TOTAL_CLAIMED: Symbol = symbol_short!("claimed"); // Map<Address, i128>
 const META_MERKLE_ROOT_KEY: &str = "merkle_root";
 const META_MERKLE_ROOT_EXPIRES_AT_KEY: &str = "merkle_root_expires_at";
+const KEY_PENDING_ADMIN: Symbol = symbol_short!("pendadm");
+const KEY_ADMIN_DEADLINE: Symbol = symbol_short!("admdln");
+const DEFAULT_ADMIN_DEADLINE: u64 = 7 * 24 * 60 * 60; // 7 days in seconds
 
 // --- Data Types ---
 
@@ -109,6 +112,8 @@ pub enum Error {
     // Merkle allowlist root has expired (merkle_root_expires_at <= now)
     AllowlistExpired = 19,
     ProofTooLarge = 20,
+    NoPendingAdmin = 21,
+    AdminRotationExpired = 22,
 }
 
 // --- Contract Events (indexer-friendly; stable topics & payloads) ---
@@ -212,6 +217,12 @@ pub struct ActionUnpausedEvent {
     pub action: Symbol,
 }
 
+#[contractevent]
+pub struct AdminRotatedEvent {
+    pub old_admin: Address,
+    pub new_admin: Address,
+}
+
 #[contract]
 pub struct AidEscrow;
 
@@ -256,6 +267,70 @@ impl AidEscrow {
     /// Defaults to `0` if the contract has never been initialized.
     pub fn get_version(env: Env) -> u32 {
         env.storage().instance().get(&KEY_VERSION).unwrap_or(0)
+    }
+
+    /// Returns the pending admin address, if any.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&KEY_PENDING_ADMIN)
+    }
+
+    /// Admin-only. Initiates a two-step admin rotation by setting a pending admin.
+    /// The pending admin must call `accept_admin()` within the deadline to complete the rotation.
+    ///
+    /// # Arguments
+    /// * `new_admin` — The address of the proposed new admin.
+    ///
+    /// # Errors
+    /// Returns `Error::NotAuthorized` if caller is not the current admin.
+    pub fn rotate_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin = Self::get_admin(env.clone())?;
+        admin.require_auth();
+
+        let deadline = env.ledger().timestamp() + DEFAULT_ADMIN_DEADLINE;
+        env.storage().instance().set(&KEY_PENDING_ADMIN, &new_admin);
+        env.storage().instance().set(&KEY_ADMIN_DEADLINE, &deadline);
+        Ok(())
+    }
+
+    /// Pending-admin-only. Completes the admin rotation.
+    /// Must be called by the pending admin within the deadline (7 days by default).
+    /// Emits an `AdminRotatedEvent`.
+    ///
+    /// # Errors
+    /// Returns `Error::NoPendingAdmin` if no rotation is in progress.
+    /// Returns `Error::AdminRotationExpired` if the deadline has passed.
+    /// Returns `Error::NotAuthorized` if caller is not the pending admin.
+    pub fn accept_admin(env: Env) -> Result<(), Error> {
+        let pending_admin: Address = env
+            .storage()
+            .instance()
+            .get(&KEY_PENDING_ADMIN)
+            .ok_or(Error::NoPendingAdmin)?;
+
+        let deadline: u64 = env
+            .storage()
+            .instance()
+            .get(&KEY_ADMIN_DEADLINE)
+            .unwrap_or(0);
+
+        if env.ledger().timestamp() > deadline {
+            return Err(Error::AdminRotationExpired);
+        }
+
+        pending_admin.require_auth();
+
+        let old_admin = Self::get_admin(env.clone())?;
+        env.storage().instance().set(&KEY_ADMIN, &pending_admin);
+        env.storage().instance().remove(&KEY_PENDING_ADMIN);
+        env.storage().instance().remove(&KEY_ADMIN_DEADLINE);
+
+        AdminRotatedEvent {
+            old_admin,
+            new_admin: pending_admin,
+        }
+        .publish(&env);
+
+        Ok(())
     }
 
     /// Returns the semantic version of the contract package.

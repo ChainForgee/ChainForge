@@ -9,7 +9,7 @@ import { AuditService } from '../audit/audit.service';
 import { EncryptionService } from '../common/encryption/encryption.service';
 import { CancelClaimDto } from './dto/cancel-claim.dto';
 import { ReissueClaimDto } from './dto/reissue-claim.dto';
-import { ClaimStatus } from '@prisma/client';
+import { ClaimStatus, Prisma } from '@prisma/client';
 import {
   CLAIM_EVENT,
   ClaimCancelledEvent,
@@ -89,7 +89,7 @@ export class CancelAndReissueService {
           claimId: id,
           eventType: 'unlock',
           // Negative amount: this entry reduces the total locked balance
-          amount: -claim.amount,
+          amount: claim.amount.negated(),
           note: `Claim ${id} cancelled by ${dto.operatorId}. Reason: ${dto.reason ?? 'none'}`,
         },
       });
@@ -185,7 +185,7 @@ export class CancelAndReissueService {
             campaignId: original.campaignId,
             claimId: originalId,
             eventType: 'unlock',
-            amount: -original.amount,
+            amount: original.amount.negated(),
             note: `Claim ${originalId} cancelled for reissue by ${dto.operatorId}`,
           },
         });
@@ -325,18 +325,20 @@ export class CancelAndReissueService {
       where: { campaignId },
     });
 
-    let lockedAmount = 0;
-    let disbursedAmount = 0;
+    let lockedAmount = new Prisma.Decimal(0);
+    let disbursedAmount = new Prisma.Decimal(0);
 
     for (const entry of ledger) {
       if (entry.eventType === 'lock' || entry.eventType === 'unlock') {
-        lockedAmount += entry.amount; // unlock entries have negative amounts
+        lockedAmount = lockedAmount.add(entry.amount); // unlock entries have negative amounts
       } else if (entry.eventType === 'disburse') {
-        disbursedAmount += entry.amount;
+        disbursedAmount = disbursedAmount.add(entry.amount);
       }
     }
 
-    const availableBudget = campaign.budget - lockedAmount - disbursedAmount;
+    const availableBudget = campaign.budget
+      .sub(lockedAmount)
+      .sub(disbursedAmount);
 
     return {
       campaignId,

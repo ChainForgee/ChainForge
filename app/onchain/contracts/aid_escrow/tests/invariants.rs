@@ -55,7 +55,6 @@ const MAX_UNITS: i128 = 100;
 /// Maximum operations per sequence.
 const MAX_OPS: usize = 30;
 
-
 // ---------------------------------------------------------------------------
 // Operations the fuzzer can apply
 // ---------------------------------------------------------------------------
@@ -90,10 +89,7 @@ fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
 // ---------------------------------------------------------------------------
 
 /// Reconstruct the three aggregates from the contract's event stream.
-fn event_aggregates(
-    env: &Env,
-    contract_id: &Address,
-) -> (i128, i128, i128) {
+fn event_aggregates(env: &Env, contract_id: &Address) -> (i128, i128, i128) {
     let escrow_topic = Symbol::new(env, "escrow_funded");
     let surplus_topic = Symbol::new(env, "surplus_withdrawn_event");
     let refund_topic = Symbol::new(env, "package_refunded");
@@ -150,7 +146,8 @@ fn assert_event_invariant(
     let lhs = locked + claimed + surplus + refunded;
 
     assert_eq!(
-        lhs, funded,
+        lhs,
+        funded,
         "{} — INVARIANT VIOLATED\n\
          Σ locked({}) + Σ claimed({}) + Σ surplus_withdrawn({}) + Σ refunded({}) = {} \n\
          != Σ EscrowFunded = {}\n\
@@ -217,7 +214,15 @@ fn run_sequence(ops: Vec<Op>) {
                 next_id += 1;
                 let metadata = Map::new(&env);
                 if client
-                    .try_create_package(&admin, &id, &recipient, &amount, &token_addr, &0, &metadata)
+                    .try_create_package(
+                        &admin,
+                        &id,
+                        &recipient,
+                        &amount,
+                        &token_addr,
+                        &0,
+                        &metadata,
+                    )
                     .is_ok()
                 {
                     active_pkg_ids.push(id);
@@ -362,7 +367,10 @@ mod smoke {
 
         // Invariant must still hold after decrement
         assert_event_invariant(
-            &env, &client, &token.address, &contract_id,
+            &env,
+            &client,
+            &token.address,
+            &contract_id,
             "smoke: decrement_locked (revoke)",
         );
     }
@@ -390,7 +398,10 @@ mod smoke {
         assert_eq!(claimed, 30 * UNIT, "finalize_claim should record the claim");
 
         assert_event_invariant(
-            &env, &client, &token.address, &contract_id,
+            &env,
+            &client,
+            &token.address,
+            &contract_id,
             "smoke: finalize_claim (claim)",
         );
     }
@@ -416,7 +427,10 @@ mod smoke {
         client.withdraw_surplus(&admin, &(20 * UNIT), &token.address);
 
         assert_event_invariant(
-            &env, &client, &token.address, &contract_id,
+            &env,
+            &client,
+            &token.address,
+            &contract_id,
             "smoke: withdraw_surplus",
         );
     }
@@ -446,10 +460,7 @@ mod smoke {
         let locked = client.get_total_locked(&token.address);
         assert_eq!(locked, 0, "refund unlocks the locked amount");
 
-        assert_event_invariant(
-            &env, &client, &token.address, &contract_id,
-            "smoke: refund",
-        );
+        assert_event_invariant(&env, &client, &token.address, &contract_id, "smoke: refund");
     }
 
     /// Smoke: refund of a revoked (cancelled) package.
@@ -476,7 +487,10 @@ mod smoke {
         client.refund(&1);
 
         assert_event_invariant(
-            &env, &client, &token.address, &contract_id,
+            &env,
+            &client,
+            &token.address,
+            &contract_id,
             "smoke: revoke → refund",
         );
     }
@@ -513,7 +527,10 @@ mod smoke {
         client.revoke(&2);
 
         assert_event_invariant(
-            &env, &client, &token.address, &contract_id,
+            &env,
+            &client,
+            &token.address,
+            &contract_id,
             "smoke: full lifecycle",
         );
 

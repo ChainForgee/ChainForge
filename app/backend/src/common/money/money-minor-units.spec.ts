@@ -132,7 +132,8 @@ describe('MoneyMinorUnits', () => {
     it('should convert to Prisma Decimal', () => {
       const amount = MoneyMinorUnits.fromMinor('100500000', USDC_ADDRESS);
       const decimal = amount.toPrismaDecimal(6);
-      expect(decimal.toString()).toBe('100.500000');
+      expect(decimal.toFixed(6)).toBe('100.500000');
+      expect(Number(decimal)).toBeCloseTo(100.5, 6);
     });
   });
 });

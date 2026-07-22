@@ -312,10 +312,15 @@ export const createRateLimiter = (
  * CSRF is currently mitigated by design due to our stateless, token-based authentication
  * mechanism (`x-api-key` header). Since browsers do not automatically attach custom headers
  * on cross-origin requests, CSRF attacks are inherently prevented.
- * 
+ *
+ * A double-submit-cookie CSRF middleware is available in csrf.middleware.ts, guarded
+ * behind the CSRF_PROTECTION_ENABLED feature flag. See docs/security/csrf-posture.md
+ * for the full contract and client integration guide.
+ *
  * WARNING:
- * If cookie-based session management or any browser-managed credentials are introduced 
- * in the future, CSRF protection middleware MUST be implemented.
+ * If cookie-based session management or any browser-managed credentials are introduced
+ * in the future, CSRF protection middleware MUST be enabled by setting
+ * CSRF_PROTECTION_ENABLED=true.
  */
 @Module({
   imports: [LoggerModule],

@@ -104,7 +104,7 @@ export class CancelAndReissueService {
       campaignId: claim.campaignId,
       operatorId: dto.operatorId,
       reason: dto.reason,
-      unlockedAmount: claim.amount,
+      unlockedAmount: claim.amount.toNumber(),
       timestamp: now,
     };
 
@@ -225,7 +225,7 @@ export class CancelAndReissueService {
       campaignId: original.campaignId,
       operatorId: dto.operatorId,
       reason: dto.reason ?? `Reissued as ${newClaim.id}`,
-      unlockedAmount: original.amount,
+      unlockedAmount: original.amount.toNumber(),
       timestamp: now,
     };
 
@@ -235,7 +235,7 @@ export class CancelAndReissueService {
       originalClaimId: originalId,
       campaignId: original.campaignId,
       operatorId: dto.operatorId,
-      amount: newAmount,
+      amount: typeof newAmount === 'number' ? newAmount : newAmount.toNumber(),
       reason: dto.reason,
       timestamp: now,
     };

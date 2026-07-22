@@ -29,8 +29,8 @@ export class BudgetService {
       },
     });
     return {
-      locked: locked._sum.amount || 0,
-      disbursed: disbursed._sum.amount || 0,
+      locked: locked._sum.amount?.toNumber() ?? 0,
+      disbursed: disbursed._sum.amount?.toNumber() ?? 0,
     };
   }
 
@@ -44,7 +44,7 @@ export class BudgetService {
     if (!campaign) throw new BadRequestException('Campaign not found');
     const usage = await this.getCampaignBudgetUsage(campaignId);
     const total = usage.locked + usage.disbursed + newAmount;
-    if (total > campaign.budget) {
+    if (total > campaign.budget.toNumber()) {
       throw new BadRequestException('Campaign funding cap exceeded');
     }
   }

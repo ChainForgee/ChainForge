@@ -532,7 +532,7 @@ export class ClaimsService {
       claimId: claim.id,
       packageId: claim.campaignId,
       status: claim.status,
-      amount: claim.amount,
+      amount: claim.amount.toNumber(),
       timestamp: claim.createdAt.toISOString(),
       tokenAddress,
       recipientRef: claim.recipientRef,
@@ -748,7 +748,10 @@ export class ClaimsService {
       where.OR = [
         {
           campaign: {
-            metadata: { path: ['tokenAddress'] as any, equals: query.tokenAddress },
+            metadata: {
+              path: ['tokenAddress'] as any,
+              equals: query.tokenAddress,
+            },
           },
         },
       ];

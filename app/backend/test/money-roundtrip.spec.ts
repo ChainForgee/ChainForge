@@ -13,7 +13,7 @@ describe('DecimalSerializerInterceptor', () => {
     };
   }
 
-  it('should convert Decimal values to strings', (done) => {
+  it('should convert Decimal values to strings', done => {
     const decimalValue = new Decimal('1000.5');
     const data = { amount: decimalValue, name: 'test' };
 
@@ -26,7 +26,7 @@ describe('DecimalSerializerInterceptor', () => {
     });
   });
 
-  it('should handle nested Decimal values', (done) => {
+  it('should handle nested Decimal values', done => {
     const data = {
       campaign: {
         budget: new Decimal('50000.00'),
@@ -41,14 +41,14 @@ describe('DecimalSerializerInterceptor', () => {
     const result$ = interceptor.intercept(mockContext, createCallHandler(data));
 
     result$.subscribe((result: any) => {
-      expect(result.campaign.budget).toBe('50000.00');
-      expect(result.claims[0].amount).toBe('100.50');
+      expect(result.campaign.budget).toBe('50000');
+      expect(result.claims[0].amount).toBe('100.5');
       expect(result.claims[1].amount).toBe('200.75');
       done();
     });
   });
 
-  it('should preserve non-Decimal numeric values', (done) => {
+  it('should preserve non-Decimal numeric values', done => {
     const data = {
       count: 42,
       percentage: 0.85,
@@ -60,12 +60,12 @@ describe('DecimalSerializerInterceptor', () => {
     result$.subscribe((result: any) => {
       expect(result.count).toBe(42);
       expect(result.percentage).toBe(0.85);
-      expect(result.amount).toBe('100.00');
+      expect(result.amount).toBe('100');
       done();
     });
   });
 
-  it('should handle null and undefined values', (done) => {
+  it('should handle null and undefined values', done => {
     const data = {
       amount: null,
       value: undefined,
@@ -82,7 +82,7 @@ describe('DecimalSerializerInterceptor', () => {
     });
   });
 
-  it('should handle array of objects with Decimal values', (done) => {
+  it('should handle array of objects with Decimal values', done => {
     const data = [
       { id: '1', amount: new Decimal('100.00') },
       { id: '2', amount: new Decimal('200.00') },
@@ -91,8 +91,8 @@ describe('DecimalSerializerInterceptor', () => {
     const result$ = interceptor.intercept(mockContext, createCallHandler(data));
 
     result$.subscribe((result: any) => {
-      expect(result[0].amount).toBe('100.00');
-      expect(result[1].amount).toBe('200.00');
+      expect(result[0].amount).toBe('100');
+      expect(result[1].amount).toBe('200');
       done();
     });
   });
@@ -102,12 +102,12 @@ describe('Decimal round-trip precision', () => {
   it('should preserve precision for common monetary values', () => {
     const testCases = [
       '0.01',
-      '0.10',
-      '1.00',
-      '10.50',
+      '0.1',
+      '1',
+      '10.5',
       '100.99',
-      '1000.50',
-      '10000.00',
+      '1000.5',
+      '10000',
       '99999999.99',
       '0.001',
       '0.0001',

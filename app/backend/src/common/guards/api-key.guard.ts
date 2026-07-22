@@ -10,7 +10,10 @@ import { Request } from 'express';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AppRole } from '../../auth/app-role.enum';
-import { createHash } from 'node:crypto';
+import {
+  maskApiKeyPreview,
+  verifyApiKeyHash,
+} from '../../api-keys/api-key-hash.util';
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
@@ -41,15 +44,28 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or missing API key');
     }
 
-    const apiKeyHash = createHash('sha256').update(apiKey).digest('hex');
-
-    // Primary path: look up the key in the database (hashed preferred; legacy plaintext supported)
-    const record = await this.prisma.apiKey.findFirst({
+    const activeKeys = await this.prisma.apiKey.findMany({
       where: {
         revokedAt: null,
-        OR: [{ keyHash: apiKeyHash }, { key: apiKey }],
+        keyPreview: maskApiKeyPreview(apiKey),
+        keyHash: { not: null },
+      },
+      select: {
+        id: true,
+        keyHash: true,
+        role: true,
+        ngoId: true,
       },
     });
+    const record = (
+      await Promise.all(
+        activeKeys.map(async candidate =>
+          (await verifyApiKeyHash(candidate.keyHash, apiKey))
+            ? candidate
+            : undefined,
+        ),
+      )
+    ).find(Boolean);
 
     if (record) {
       // Record usage for lifecycle visibility (best-effort, but awaited to ensure consistency in tests)

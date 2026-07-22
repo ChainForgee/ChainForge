@@ -7,7 +7,7 @@ declare global {
         role: AppRole;
         ngoId?: string | null;
         apiKeyId?: string;
-        authType?: 'apiKey' | 'envApiKey';
+        authType?: 'apiKey' | 'envApiKey' | 'jwt';
       };
     }
   }

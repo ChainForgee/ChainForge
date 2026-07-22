@@ -26,6 +26,12 @@ interface SorobanErrorLike {
 export class SorobanErrorMapper {
   /**
    * Soroban contract error codes from AidEscrow (Rust contract)
+   *
+   * Numeric identifiers are the `#[repr(u32)]` discriminants from
+   * `aid_escrow::Error` in
+   * `app/onchain/contracts/aid_escrow/src/lib.rs`.  The taxonomy is
+   * intentionally comprehensive — every variant (1..=23) is mapped so
+   * runtime errors never silently fall back to the catch-all 500.
    */
   private readonly contractErrors: Record<
     number,
@@ -52,6 +58,13 @@ export class SorobanErrorMapper {
     16: { code: 400, message: 'Invalid claim proof' },
     17: { code: 400, message: 'Invalid token contract address' },
     18: { code: 502, message: 'Token transfer failed' },
+    // Merkle allowlist / proof-size errors (added with admin handover).
+    19: { code: 410, message: 'Merkle allowlist has expired' },
+    20: { code: 400, message: 'Claim proof exceeds maximum depth' },
+    21: { code: 400, message: 'No admin rotation is pending' },
+    22: { code: 400, message: 'Admin rotation deadline has passed' },
+    // Issue #233: `Config.allowed_tokens` exceeded the maximum length.
+    23: { code: 413, message: 'Allowed-tokens list exceeds maximum length' },
   };
 
   /**
@@ -241,6 +254,31 @@ export class SorobanErrorMapper {
       InvalidProof: { code: 400, message: 'Invalid claim proof' },
       InvalidToken: { code: 400, message: 'Invalid token contract address' },
       TokenTransferFailed: { code: 502, message: 'Token transfer failed' },
+      // Merkle allowlist / proof-size errors (added with admin handover).
+      // Without these string-form fallbacks, the JSON-RPC error path
+      // and ordinary Error(Contract, #N) log messages silently fall
+      // through to the catch-all 500 instead of the proper status.
+      AllowlistExpired: {
+        code: 410,
+        message: 'Merkle allowlist has expired',
+      },
+      ProofTooLarge: {
+        code: 400,
+        message: 'Claim proof exceeds maximum depth',
+      },
+      NoPendingAdmin: {
+        code: 400,
+        message: 'No admin rotation is pending',
+      },
+      AdminRotationExpired: {
+        code: 400,
+        message: 'Admin rotation deadline has passed',
+      },
+      // Issue #233: ``Config.allowed_tokens`` exceeded the cap.
+      TooManyAllowedTokens: {
+        code: 413,
+        message: 'Allowed-tokens list exceeds maximum length',
+      },
     };
 
     for (const [errorKey, errorInfo] of Object.entries(errorMap)) {

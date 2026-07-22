@@ -1,0 +1,107 @@
+# docs/errors.yaml
+#
+# Canonical cross-service error-code taxonomy (Issue #249).
+#
+# This file is the human-readable single source of truth for error codes
+# that cross the backend (NestJS / TypeScript) and the AI service
+# (FastAPI / Python). Both apps hand-mirror the names listed here in:
+#
+#   - app/backend/src/common/errors/codes.ts       (TypeScript `ErrorCode` enum)
+#   - app/ai-service/schemas/error_codes.py        (Python `ErrorCode` enum)
+#
+# Each service ships a parity test that asserts every name below is
+# represented in both enums. New codes must be added here FIRST, then
+# mirrored in both enums.
+#
+# Scope notes:
+#   * `cross_service` — generic HTTP / cross-stack error classes emitted
+#     by both services (validation, not_found, payload_too_large, etc.).
+#   * `contract`     — semantic identifiers for every `Error` variant in
+#     the on-chain `aid_escrow` Soroban contract (lib.rs). These mirror
+#     numeric codes 1..=23 emitted on-chain.
+#
+# Numeric HTTP status codes are advisory only; the in-tree exception
+# filters own the final status mapping.
+
+cross_service:
+  - name: VALIDATION_ERROR
+    http_status: 422
+  - name: NOT_FOUND
+    http_status: 404
+  - name: UNAUTHORIZED
+    http_status: 401
+  - name: FORBIDDEN
+    http_status: 403
+  - name: CONFLICT
+    http_status: 409
+  - name: BAD_REQUEST
+    http_status: 400
+  - name: PAYLOAD_TOO_LARGE
+    http_status: 413
+  - name: BODY_LENGTH_MISMATCH
+    http_status: 400
+  - name: INTERNAL_SERVER_ERROR
+    http_status: 500
+  - name: UPSTREAM_TIMEOUT
+    http_status: 504
+  - name: UPSTREAM_UNAVAILABLE
+    http_status: 503
+  - name: UPSTREAM_ERROR
+    http_status: 502
+  - name: AI_SERVICE_ERROR
+    http_status: 502
+  - name: AI_TIMEOUT
+    http_status: 504
+  - name: RATE_LIMIT_EXCEEDED
+    http_status: 429
+
+contract:
+  # Numeric identifiers correspond to `Error` discriminant values in
+  # app/onchain/contracts/aid_escrow/src/lib.rs. Update both this list
+  # AND the Rust enum together.
+  - name: CONTRACT_NOT_INITIALIZED            # 1
+    http_status: 400
+  - name: CONTRACT_ALREADY_INITIALIZED       # 2
+    http_status: 409
+  - name: CONTRACT_NOT_AUTHORIZED            # 3
+    http_status: 403
+  - name: CONTRACT_INVALID_AMOUNT            # 4
+    http_status: 400
+  - name: CONTRACT_PACKAGE_NOT_FOUND         # 5
+    http_status: 404
+  - name: CONTRACT_PACKAGE_NOT_ACTIVE        # 6
+    http_status: 400
+  - name: CONTRACT_PACKAGE_EXPIRED           # 7
+    http_status: 410
+  - name: CONTRACT_PACKAGE_NOT_EXPIRED       # 8
+    http_status: 400
+  - name: CONTRACT_INSUFFICIENT_FUNDS        # 9
+    http_status: 400
+  - name: CONTRACT_PACKAGE_ID_EXISTS         # 10
+    http_status: 409
+  - name: CONTRACT_INVALID_STATE             # 11
+    http_status: 400
+  - name: CONTRACT_MISMATCHED_ARRAYS         # 12
+    http_status: 400
+  - name: CONTRACT_INSUFFICIENT_SURPLUS      # 13
+    http_status: 400
+  - name: CONTRACT_PAUSED                    # 14
+    http_status: 503
+  - name: CONTRACT_CLAIM_TOO_EARLY           # 15
+    http_status: 400
+  - name: CONTRACT_INVALID_PROOF             # 16
+    http_status: 400
+  - name: CONTRACT_INVALID_TOKEN             # 17
+    http_status: 400
+  - name: CONTRACT_TOKEN_TRANSFER_FAILED     # 18
+    http_status: 502
+  - name: CONTRACT_ALLOWLIST_EXPIRED         # 19
+    http_status: 410
+  - name: CONTRACT_PROOF_TOO_LARGE           # 20
+    http_status: 400
+  - name: CONTRACT_NO_PENDING_ADMIN          # 21
+    http_status: 400
+  - name: CONTRACT_ADMIN_ROTATION_EXPIRED    # 22
+    http_status: 400
+  - name: CONTRACT_TOO_MANY_ALLOWED_TOKENS   # 23 (Issue #233)
+    http_status: 413

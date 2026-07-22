@@ -1,14 +1,19 @@
 """
-Tests for the standardized error response envelope (Issue #244).
+Tests for the standardized error response envelope (Issue #244, #249).
 
 Every error response must conform to:
   {"error": {"code": str, "message": str, "details": any|null}}
+
+The ``code`` strings are sourced from ``schemas.error_codes.ErrorCode``
+so the same identifier is emitted for the same error class on both
+this service and the NestJS backend.
 """
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from main import app
 from exceptions import AIServiceError
+from schemas.error_codes import ErrorCode
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -27,7 +32,7 @@ class TestNotFound:
     def test_404_shape(self):
         r = client.get("/v1/ai/nonexistent-route-xyz")
         assert r.status_code == 404
-        assert_envelope(r.json(), "HTTP_404")
+        assert_envelope(r.json(), ErrorCode.NOT_FOUND.value)
 
     def test_404_message_is_string(self):
         r = client.get("/v1/ai/nonexistent-route-xyz")
@@ -45,7 +50,7 @@ class TestValidationError:
         r = client.post("/v1/ai/inference", content="not-json",
                         headers={"Content-Type": "application/json"})
         assert r.status_code == 422
-        assert_envelope(r.json(), "VALIDATION_ERROR")
+        assert_envelope(r.json(), ErrorCode.VALIDATION_ERROR.value)
 
     def test_422_details_present(self):
         r = client.post("/v1/ai/inference", content="not-json",
@@ -67,7 +72,7 @@ class TestUnauthorized:
 
         r = client.get("/_test/401")
         assert r.status_code == 401
-        assert_envelope(r.json(), "HTTP_401")
+        assert_envelope(r.json(), ErrorCode.UNAUTHORIZED.value)
 
 
 # ---------------------------------------------------------------------------
@@ -79,13 +84,13 @@ class TestAIServiceError:
         async def _raise_ai_error():
             raise AIServiceError(
                 message="LLM request timed out",
-                code="AI_TIMEOUT",
+                code=ErrorCode.AI_TIMEOUT,
                 details={"provider": "openai", "timeout_seconds": 30},
             )
 
         r = client.get("/_test/ai-failure")
         assert r.status_code == 502
-        assert_envelope(r.json(), "AI_TIMEOUT")
+        assert_envelope(r.json(), ErrorCode.AI_TIMEOUT.value)
 
     def test_ai_error_details(self):
         r = client.get("/_test/ai-failure")
@@ -103,7 +108,7 @@ class TestInternalServerError:
 
         r = client.get("/_test/500")
         assert r.status_code == 500
-        assert_envelope(r.json(), "INTERNAL_SERVER_ERROR")
+        assert_envelope(r.json(), ErrorCode.INTERNAL_SERVER_ERROR.value)
 
     def test_500_no_leak(self):
         """Internal error details must not leak to the client."""

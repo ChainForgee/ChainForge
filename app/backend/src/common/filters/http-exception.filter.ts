@@ -9,6 +9,7 @@ import {
 import { Request, Response } from 'express';
 import { ValidationError } from 'class-validator';
 import { LoggerService } from '../../logger/logger.service';
+import { ErrorCode } from '../errors/codes';
 
 export interface ErrorResponse {
   code: number;
@@ -17,6 +18,13 @@ export interface ErrorResponse {
   traceId?: string;
   timestamp: string;
   path: string;
+  /**
+   * Cross-service taxonomy identifier (Issue #249).  Same identifier is
+   * emitted by the AI service's `ErrorEnvelope.code` so callers can
+   * match errors across stacks.  See `src/common/errors/codes.ts` for
+   * the canonical list and `docs/errors.yaml` for the source of truth.
+   */
+  errorCode?: ErrorCode;
 }
 
 @Injectable()
@@ -74,6 +82,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message: typeof message === 'string' ? message : JSON.stringify(message),
       details:
         typeof exceptionResponse === 'object' ? exceptionResponse : undefined,
+      errorCode: statusToErrorCode(status),
       traceId,
       timestamp: new Date().toISOString(),
       path: request.url,
@@ -96,12 +105,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let code = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Database error occurred';
     let details: any = null;
+    // Cross-service taxonomy code (Issue #249). Defaulted below per branch.
+    let errorCode: ErrorCode = ErrorCode.INTERNAL_SERVER_ERROR;
 
     // Map common Prisma errors
     if (exception.code === 'P2002') {
       // Unique constraint failed
       code = HttpStatus.CONFLICT;
       message = 'Unique constraint violation';
+      errorCode = ErrorCode.CONFLICT;
       details = {
         target: exception.meta?.target,
         field: Array.isArray(exception.meta?.target)
@@ -112,6 +124,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // Record not found
       code = HttpStatus.NOT_FOUND;
       message = 'Record not found';
+      errorCode = ErrorCode.NOT_FOUND;
       details = {
         cause: exception.meta?.cause,
       };
@@ -119,6 +132,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // Foreign key constraint failed
       code = HttpStatus.BAD_REQUEST;
       message = 'Foreign key constraint violation';
+      errorCode = ErrorCode.BAD_REQUEST;
       details = {
         field_name: exception.meta?.field_name,
       };
@@ -126,6 +140,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // Value too long for column
       code = HttpStatus.BAD_REQUEST;
       message = 'Value too long for column';
+      errorCode = ErrorCode.BAD_REQUEST;
       details = {
         column_name: exception.meta?.column_name,
       };
@@ -140,6 +155,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       code,
       message,
       details,
+      errorCode,
       traceId,
       timestamp: new Date().toISOString(),
       path: request.url,
@@ -166,6 +182,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       details: {
         errors: validationErrors,
       },
+      errorCode: ErrorCode.VALIDATION_ERROR,
       traceId,
       timestamp: new Date().toISOString(),
       path: request.url,
@@ -198,9 +215,56 @@ export class AllExceptionsFilter implements ExceptionFilter {
             stack: exception.stack,
           }),
       },
+      errorCode: ErrorCode.INTERNAL_SERVER_ERROR,
       traceId,
       timestamp: new Date().toISOString(),
       path: request.url,
     };
+  }
+}
+
+/**
+ * Maps an HTTP status code to a shared `ErrorCode` for the new
+ * cross-service taxonomy (Issue #249).  Stable mapping; never invents
+ * a new identifier at runtime.
+ */
+function statusToErrorCode(status: number): ErrorCode {
+  switch (status) {
+    case 400:
+      return ErrorCode.BAD_REQUEST;
+    case 401:
+      return ErrorCode.UNAUTHORIZED;
+    case 403:
+      return ErrorCode.FORBIDDEN;
+    case 404:
+      return ErrorCode.NOT_FOUND;
+    case 408:
+      return ErrorCode.UPSTREAM_TIMEOUT;
+    case 409:
+      return ErrorCode.CONFLICT;
+    case 413:
+      return ErrorCode.PAYLOAD_TOO_LARGE;
+    case 422:
+      return ErrorCode.VALIDATION_ERROR;
+    case 429:
+      return ErrorCode.RATE_LIMIT_EXCEEDED;
+    case 500:
+      return ErrorCode.INTERNAL_SERVER_ERROR;
+    case 501:
+      return ErrorCode.UPSTREAM_ERROR;
+    case 502:
+      return ErrorCode.UPSTREAM_ERROR;
+    case 503:
+      return ErrorCode.UPSTREAM_UNAVAILABLE;
+    case 504:
+      return ErrorCode.UPSTREAM_TIMEOUT;
+    default:
+      if (status >= 400 && status < 500) {
+        return ErrorCode.BAD_REQUEST;
+      }
+      if (status >= 500 && status < 600) {
+        return ErrorCode.UPSTREAM_ERROR;
+      }
+      return ErrorCode.INTERNAL_SERVER_ERROR;
   }
 }

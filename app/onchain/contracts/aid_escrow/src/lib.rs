@@ -44,6 +44,14 @@ const KEY_PENDING_ADMIN: Symbol = symbol_short!("pendadm");
 const KEY_ADMIN_DEADLINE: Symbol = symbol_short!("admdln");
 const DEFAULT_ADMIN_DEADLINE: u64 = 7 * 24 * 60 * 60; // 7 days in seconds
 
+/// Maximum number of tokens that can appear in `Config.allowed_tokens`.
+///
+/// Bound keeps `set_config` from bloating the contract's WASM instance
+/// storage (Soroban charges per-byte for instance entries).  32 covers
+/// all sensible humanitarian-aid corridors without forcing admins to
+/// shard the allowlist across multiple contracts.
+pub const MAX_ALLOWED_TOKENS: u32 = 32;
+
 // --- Data Types ---
 
 #[contracttype]
@@ -114,6 +122,8 @@ pub enum Error {
     ProofTooLarge = 20,
     NoPendingAdmin = 21,
     AdminRotationExpired = 22,
+    /// `Config.allowed_tokens` exceeded [`MAX_ALLOWED_TOKENS`].
+    TooManyAllowedTokens = 23,
 }
 
 // --- Contract Events (indexer-friendly; stable topics & payloads) ---
@@ -422,6 +432,13 @@ impl AidEscrow {
 
         if config.min_amount <= 0 {
             return Err(Error::InvalidAmount);
+        }
+
+        // Bound the allowlist before invoking any token contract — this
+        // check is cheap (just a vector length comparison) and bailing
+        // out here avoids 33+ host invocations on bogus addresses.
+        if config.allowed_tokens.len() > MAX_ALLOWED_TOKENS {
+            return Err(Error::TooManyAllowedTokens);
         }
 
         for i in 0..config.allowed_tokens.len() {

@@ -667,3 +667,63 @@ fn test_claim_with_proof_oversized_fails() {
 
     assert_eq!(result, Err(Ok(crate::Error::ProofTooLarge)));
 }
+
+// ===========================================================================
+// set_config — allowed_tokens length cap (Issue #233)
+// ===========================================================================
+
+/// `set_config` MUST reject an `allowed_tokens` list longer than
+/// [`aid_escrow::MAX_ALLOWED_TOKENS`] with `Error::TooManyAllowedTokens`
+/// — even when the addresses are not valid token contracts.  The new
+/// length gate runs BEFORE per-token validation so the rejected test
+/// inputs cannot accidentally inflate host-invocation costs.
+#[test]
+fn set_config_rejects_too_many_allowed_tokens() {
+    let t = TestSetup::new();
+
+    let mut too_many = Vec::new(&t.env);
+    for _ in 0..(super::MAX_ALLOWED_TOKENS + 1) {
+        too_many.push_back(Address::generate(&t.env));
+    }
+
+    let result = t.client.try_set_config(&Config {
+        min_amount: 1,
+        max_expires_in: 0,
+        allowed_tokens: too_many,
+    });
+    assert_eq!(result, Err(Ok(Error::TooManyAllowedTokens)));
+}
+
+/// Exactly `MAX_ALLOWED_TOKENS` random addresses must pass the new
+/// length gate.  Per-token validation still fails (random addresses are
+/// not contracts), but the failure type MUST be `InvalidToken` rather
+/// than `TooManyAllowedTokens`, pinning the threshold at exactly 32.
+#[test]
+fn set_config_threshold_is_exactly_max_allowed_tokens() {
+    let t = TestSetup::new();
+
+    let mut exactly_max = Vec::new(&t.env);
+    for _ in 0..super::MAX_ALLOWED_TOKENS {
+        exactly_max.push_back(Address::generate(&t.env));
+    }
+
+    let result = t.client.try_set_config(&Config {
+        min_amount: 1,
+        max_expires_in: 0,
+        allowed_tokens: exactly_max,
+    });
+    assert!(
+        matches!(result, Err(Ok(Error::InvalidToken))),
+        "expected per-token InvalidToken at length {}, got {:?}",
+        super::MAX_ALLOWED_TOKENS,
+        result,
+    );
+}
+
+/// `MAX_ALLOWED_TOKENS` must equal 32 — the value the issue tracker
+/// accepted.  This test guards against accidental drift if someone
+/// tweaks the constant in a future PR.
+#[test]
+fn max_allowed_tokens_constant_is_32() {
+    assert_eq!(super::MAX_ALLOWED_TOKENS, 32);
+}

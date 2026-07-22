@@ -17,6 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from exceptions import AIServiceError
 from schemas.errors import ErrorDetail, ErrorEnvelope
+from schemas.error_codes import ErrorCode, error_code_for_http_status
 import time
 import metrics
 import email.utils
@@ -348,7 +349,7 @@ class MaxRequestBodySizeMiddleware:
 
         envelope = ErrorEnvelope(
             error=ErrorDetail(
-                code="PAYLOAD_TOO_LARGE",
+                code=ErrorCode.PAYLOAD_TOO_LARGE.value,
                 message=msg,
             )
         ).model_dump()
@@ -376,7 +377,7 @@ class MaxRequestBodySizeMiddleware:
         )
         envelope = ErrorEnvelope(
             error=ErrorDetail(
-                code="CODE_BODY_LENGTH_MISMATCH",
+                code=ErrorCode.BODY_LENGTH_MISMATCH.value,
                 message=msg,
             )
         ).model_dump()
@@ -1033,10 +1034,15 @@ async def _legacy_cancel_task(task_id: str):
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc: HTTPException):
     logger.error(f"HTTP Exception: {exc.status_code} - {exc.detail}")
+    # Translate the HTTP status into the shared ErrorCode taxonomy
+    # (Issue #249) instead of emitting an ad-hoc ``HTTP_<status>`` string.
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorEnvelope(
-            error=ErrorDetail(code=f"HTTP_{exc.status_code}", message=str(exc.detail))
+            error=ErrorDetail(
+                code=error_code_for_http_status(exc.status_code).value,
+                message=str(exc.detail),
+            )
         ).model_dump(),
     )
 
@@ -1053,7 +1059,7 @@ async def validation_exception_handler(request, exc: RequestValidationError):
         status_code=422,
         content=ErrorEnvelope(
             error=ErrorDetail(
-                code="VALIDATION_ERROR",
+                code=ErrorCode.VALIDATION_ERROR.value,
                 message="Request validation failed",
                 details=exc.errors(),
             )
@@ -1078,7 +1084,10 @@ async def general_exception_handler(request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content=ErrorEnvelope(
-            error=ErrorDetail(code="INTERNAL_SERVER_ERROR", message="Internal server error")
+            error=ErrorDetail(
+                code=ErrorCode.INTERNAL_SERVER_ERROR.value,
+                message="Internal server error",
+            )
         ).model_dump(),
     )
 

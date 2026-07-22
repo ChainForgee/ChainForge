@@ -233,7 +233,7 @@ class TestStreamingRejection:
     def test_observed_body_larger_than_content_length_returns_400(self):
         """If the client declares a Content-Length but streams more bytes
         than declared, the request must immediately fail with HTTP 400
-        and CODE_BODY_LENGTH_MISMATCH (Issue #216)."""
+        and BODY_LENGTH_MISMATCH (Issue #216)."""
         middleware = MaxRequestBodySizeMiddleware(app=_PassthroughApp(), max_bytes=1024)
         scope = _make_scope(
             headers=[(b"content-length", b"10")],
@@ -246,7 +246,7 @@ class TestStreamingRejection:
         sent = _run_middleware(middleware, scope, chunks)
         assert sent[0]["status"] == 400
         body = json.loads(b"".join(m["body"] for m in sent if m["type"] == "http.response.body"))
-        assert body["error"]["code"] == "CODE_BODY_LENGTH_MISMATCH"
+        assert body["error"]["code"] == "BODY_LENGTH_MISMATCH"
         assert "15 bytes" in body["error"]["message"]
         assert "10 bytes" in body["error"]["message"]
 

@@ -13,20 +13,41 @@ Every error response follows this shape:
   "code": 400,
   "message": "Human-readable error message",
   "details": { "...additional context..." },
+  "errorCode": "VALIDATION_ERROR",
   "traceId": "M1ABC2DEF3G",
   "timestamp": "2026-01-23T12:30:00.000Z",
   "path": "/api/v1/resource"
 }
 ```
 
-| Field       | Type             | Description                                       |
-|-------------|------------------|---------------------------------------------------|
-| `code`      | `number`         | HTTP status code                                  |
-| `message`   | `string`         | Human-readable error message                      |
-| `details`   | `object \| null` | Additional error-specific information (optional)  |
-| `traceId`   | `string`         | Request trace ID from `X-Request-ID` header       |
-| `timestamp` | `string`         | ISO 8601 timestamp of when the error occurred     |
-| `path`      | `string`         | The API endpoint that caused the error            |
+| Field       | Type             | Description                                                                              |
+|-------------|------------------|------------------------------------------------------------------------------------------|
+| `code`      | `number`         | HTTP status code                                                                         |
+| `message`   | `string`         | Human-readable error message                                                             |
+| `details`   | `object \| null` | Additional error-specific information (optional)                                         |
+| `errorCode` | `string`         | Cross-stack taxonomy identifier (Issue #249). Optional. Mirrors the AI-service `ErrorEnvelope.code`. |
+| `traceId`   | `string`         | Request trace ID from `X-Request-ID` header                                              |
+| `timestamp` | `string`         | ISO 8601 timestamp of when the error occurred                                            |
+| `path`      | `string`         | The API endpoint that caused the error                                                   |
+
+### Cross-stack taxonomy (`errorCode`)
+
+`errorCode` is the shared identifier emitted by **both** this backend
+and the AI service (FastAPI).  The canonical list lives in
+`docs/errors.yaml` and is mirrored by:
+
+- `src/common/errors/codes.ts`        (`ErrorCode` enum on the backend)
+- `app/ai-service/schemas/error_codes.py` (`ErrorCode` enum on the AI service)
+
+Both apps ship parity tests that assert every name in `docs/errors.yaml`
+is present in both enums.  When HTTP status alone is insufficient for
+mobile/web branching on a stable error class — e.g. distinguishing
+`CONTRACT_TOO_MANY_ALLOWED_TOKENS` from a generic 413 — clients should
+prefer `errorCode` over `code`.
+
+> Any new error identifier **must** be added to `docs/errors.yaml` *and*
+> both enums (`src/common/errors/codes.ts`, `app/ai-service/schemas/error_codes.py`)
+> in the same PR — the parity tests will fail otherwise.
 
 ## Architecture
 

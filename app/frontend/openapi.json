@@ -3677,6 +3677,102 @@
         ]
       }
     },
+    "/api/v1/oauth/token": {
+      "post": {
+        "description": "Supports client_credentials using an existing ChainForge API key as client_secret, and refresh_token. No password login flow exists in this backend.",
+        "operationId": "TokenController_token_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token pair issued."
+          }
+        },
+        "summary": "Issue or refresh OAuth-compatible JWTs",
+        "tags": [
+          "OAuth"
+        ]
+      }
+    },
+    "/api/v1/oauth/userinfo": {
+      "get": {
+        "operationId": "TokenController_userinfo_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "JWT-auth": []
+          }
+        ],
+        "summary": "Return claims for the current JWT principal",
+        "tags": [
+          "OAuth"
+        ]
+      }
+    },
+    "/api/v1/oauth/introspect": {
+      "post": {
+        "operationId": "TokenController_introspect_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenIntrospectionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Introspect a JWT using RFC 7662 active/inactive shape",
+        "tags": [
+          "OAuth"
+        ]
+      }
+    },
+    "/api/v1/oauth/revoke": {
+      "post": {
+        "operationId": "TokenController_revoke_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRevocationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Revoke a JWT by adding its jti to Redis",
+        "tags": [
+          "OAuth"
+        ]
+      }
+    },
     "/api/v1/sessions": {
       "post": {
         "description": "Create a new verification session with optional multi-step flow definition",
@@ -6256,6 +6352,58 @@
             "example": "compromised"
           }
         }
+      },
+      "TokenRequestDto": {
+        "type": "object",
+        "properties": {
+          "grant_type": {
+            "type": "string",
+            "enum": [
+              "client_credentials",
+              "refresh_token"
+            ],
+            "description": "OAuth grant type. This backend has no password login flow, so JWT issuance is based on existing API-key client credentials."
+          },
+          "client_id": {
+            "type": "string",
+            "description": "Optional client identifier. API-key records are validated by client_secret."
+          },
+          "client_secret": {
+            "type": "string",
+            "description": "Existing ChainForge API key used as the OAuth client secret."
+          },
+          "refresh_token": {
+            "type": "string",
+            "description": "Refresh token, required when grant_type=refresh_token."
+          }
+        },
+        "required": [
+          "grant_type"
+        ]
+      },
+      "TokenIntrospectionDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "JWT access or refresh token to introspect."
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "TokenRevocationDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "JWT access or refresh token to revoke."
+          }
+        },
+        "required": [
+          "token"
+        ]
       },
       "SessionStepDefinitionDto": {
         "type": "object",

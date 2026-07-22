@@ -532,7 +532,7 @@ export class ClaimsService {
       claimId: claim.id,
       packageId: claim.campaignId,
       status: claim.status,
-      amount: claim.amount,
+      amount: claim.amount.toNumber(),
       timestamp: claim.createdAt.toISOString(),
       tokenAddress,
       recipientRef: claim.recipientRef,

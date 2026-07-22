@@ -18,6 +18,7 @@ import {
   createHelmetMiddleware,
   createRateLimiter,
 } from './common/security/security.module';
+import { createCsrfMiddleware } from './common/security/csrf.middleware';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 
 async function bootstrap() {
@@ -42,6 +43,15 @@ async function bootstrap() {
   app.use(createCorsOriginValidator(configService));
   app.enableCors(buildCorsOptions(configService));
   app.use(createRateLimiter(configService, app.get(RedisService)));
+
+  // CSRF protection: only active when CSRF_PROTECTION_ENABLED=true
+  const csrfEnabled = configService.get<string>('CSRF_PROTECTION_ENABLED', 'false')
+    .trim()
+    .toLowerCase() === 'true';
+  if (csrfEnabled) {
+    app.use(createCsrfMiddleware());
+  }
+
   app.use(compression());
 
   // Global prefix

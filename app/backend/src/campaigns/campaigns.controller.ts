@@ -220,7 +220,8 @@ export class CampaignsController {
       return { error: 'Campaign not found' };
     }
     const usage = await this.budgetService.getCampaignBudgetUsage(id);
-    const available = campaign.budget - usage.locked - usage.disbursed;
+    const available =
+      campaign.budget.toNumber() - usage.locked - usage.disbursed;
     return {
       campaignId: id,
       budget: campaign.budget,

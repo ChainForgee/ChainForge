@@ -1,3 +1,4 @@
+import { Decimal } from '@prisma/client/runtime/library';
 import { BudgetService } from './budget.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -18,13 +19,13 @@ describe('BudgetService', () => {
   it('should allow within budget', async () => {
     (prisma.campaign.findUnique as jest.Mock).mockResolvedValue({
       id: 'c1',
-      budget: 100,
+      budget: new Decimal(100),
     });
 
     const aggregateMock = prisma.balanceLedger.aggregate as jest.Mock;
     aggregateMock
-      .mockResolvedValueOnce({ _sum: { amount: 30 } }) // locked
-      .mockResolvedValueOnce({ _sum: { amount: 20 } }); // disbursed
+      .mockResolvedValueOnce({ _sum: { amount: new Decimal(30) } })
+      .mockResolvedValueOnce({ _sum: { amount: new Decimal(20) } });
 
     await expect(
       budgetService.assertWithinBudget('c1', 40),
@@ -34,13 +35,13 @@ describe('BudgetService', () => {
   it('should reject if over budget', async () => {
     (prisma.campaign.findUnique as jest.Mock).mockResolvedValue({
       id: 'c1',
-      budget: 100,
+      budget: new Decimal(100),
     });
 
     const aggregateMock = prisma.balanceLedger.aggregate as jest.Mock;
     aggregateMock
-      .mockResolvedValueOnce({ _sum: { amount: 60 } }) // locked
-      .mockResolvedValueOnce({ _sum: { amount: 30 } }); // disbursed
+      .mockResolvedValueOnce({ _sum: { amount: new Decimal(60) } })
+      .mockResolvedValueOnce({ _sum: { amount: new Decimal(30) } });
 
     await expect(budgetService.assertWithinBudget('c1', 20)).rejects.toThrow(
       'Campaign funding cap exceeded',

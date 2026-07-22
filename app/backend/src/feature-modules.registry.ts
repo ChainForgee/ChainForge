@@ -31,6 +31,7 @@ import { AidEscrowModule } from './onchain/aid-escrow.module';
 import { AdminSearchModule } from './search/admin-search.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { ApiKeysModule } from './api-keys/api-keys.module';
+import { AuthOidcModule } from './auth-oidc/auth-oidc.module';
 import { AuditModule } from './audit/audit.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { ClaimsModule } from './claims/claims.module';
@@ -90,6 +91,7 @@ export const FEATURE_MODULES: Type<unknown>[] = [
   JobsModule,
   AnalyticsModule,
   ApiKeysModule,
+  AuthOidcModule,
   SessionModule,
   CommonServicesModule,
   EvidenceModule,

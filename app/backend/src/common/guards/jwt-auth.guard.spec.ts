@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { generateKeyPairSync } from 'node:crypto';
 import { decodeJwt } from 'jose';
 import { AppRole } from '../../auth/app-role.enum';
+import { hashApiKey } from '../../api-keys/api-key-hash.util';
 import { TokenService } from '../../auth-oidc/token.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
@@ -38,7 +39,7 @@ describe('JwtAuthGuard', () => {
   };
   const prisma = {
     apiKey: {
-      findFirst: jest.fn(),
+      findMany: jest.fn(),
       update: jest.fn(),
     },
   };
@@ -46,16 +47,19 @@ describe('JwtAuthGuard', () => {
   let tokenService: TokenService;
   let guard: JwtAuthGuard;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     redisClient.zscore.mockResolvedValue(null);
     redisClient.zadd.mockResolvedValue(1);
     redisClient.zremrangebyscore.mockResolvedValue(0);
-    prisma.apiKey.findFirst.mockResolvedValue({
-      id: 'api-key-1',
-      role: AppRole.operator,
-      ngoId: 'ngo-1',
-    });
+    prisma.apiKey.findMany.mockResolvedValue([
+      {
+        id: 'api-key-1',
+        keyHash: await hashApiKey('api-key-secret'),
+        role: AppRole.operator,
+        ngoId: 'ngo-1',
+      },
+    ]);
     prisma.apiKey.update.mockResolvedValue({});
 
     const config = {

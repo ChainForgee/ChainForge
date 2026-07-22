@@ -7,7 +7,11 @@ import { ConfigService } from '@nestjs/config';
 import { AppRole } from '../auth/app-role.enum';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../../cache/redis.service';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import {
+  maskApiKeyPreview,
+  verifyApiKeyHash,
+} from '../api-keys/api-key-hash.util';
 import {
   importPKCS8,
   importSPKI,
@@ -156,13 +160,28 @@ export class TokenService {
   private async authenticateApiKey(
     rawClientSecret: string,
   ): Promise<TokenPrincipal> {
-    const apiKeyHash = fingerprintApiKey(rawClientSecret);
-    const record = await this.prisma.apiKey.findFirst({
+    const activeKeys = await this.prisma.apiKey.findMany({
       where: {
         revokedAt: null,
-        OR: [{ keyHash: apiKeyHash }, { key: rawClientSecret }],
+        keyPreview: maskApiKeyPreview(rawClientSecret),
+        keyHash: { not: null },
+      },
+      select: {
+        id: true,
+        keyHash: true,
+        role: true,
+        ngoId: true,
       },
     });
+    const record = (
+      await Promise.all(
+        activeKeys.map(async candidate =>
+          (await verifyApiKeyHash(candidate.keyHash, rawClientSecret))
+            ? candidate
+            : undefined,
+        ),
+      )
+    ).find(Boolean);
 
     if (record) {
       await this.prisma.apiKey.update({
@@ -292,13 +311,4 @@ export class TokenService {
     const parsed = raw !== undefined ? Number.parseInt(raw, 10) : NaN;
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
   }
-}
-
-// codeql[js/insufficient-password-hash]
-function fingerprintApiKey(rawClientSecret: string): string {
-  // SHA-256 fingerprint of a high-entropy API key/client secret for
-  // exact-match lookup (matches ApiKeyGuard and ApiKey.keyHash).
-
-  // codeql[js/insufficient-password-hash]
-  return createHash('sha256').update(rawClientSecret).digest('hex');
 }

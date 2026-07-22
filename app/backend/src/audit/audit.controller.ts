@@ -1,6 +1,7 @@
 import { Controller, Get, Query, Res, Version } from '@nestjs/common';
 import { Response } from 'express';
 import { AuditService, AuditQuery, ExportAuditQuery } from './audit.service';
+import { HttpCacheTtl } from 'src/common/decorators/http-cache.decorator';
 import {
   ApiTags,
   ApiOperation,
@@ -16,6 +17,7 @@ import {
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 
+  @HttpCacheTtl(30) // Response cached for 30 seconds
   @Get()
   @Version('1')
   @ApiOperation({

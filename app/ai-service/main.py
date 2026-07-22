@@ -7,6 +7,7 @@ Main entry point for the AI service layer.
 from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
+import asyncio
 import json
 import logging
 
@@ -18,6 +19,8 @@ from exceptions import AIServiceError
 from schemas.errors import ErrorDetail, ErrorEnvelope
 import time
 import metrics
+import email.utils
+from datetime import datetime, timezone
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -50,6 +53,19 @@ class HTTPBodyTooLarge(Exception):
             f"Request body of {observed} bytes exceeds limit of {limit} bytes"
         )
         self.limit = limit
+        self.observed = observed
+
+
+class HTTPBodyLengthMismatch(Exception):
+    """Internal signal raised when an incoming request body exceeds the
+    declared Content-Length header value. Caught and converted to a
+    400 response by :class:`MaxRequestBodySizeMiddleware`."""
+
+    def __init__(self, declared: int, observed: int):
+        super().__init__(
+            f"Observed body size of {observed} bytes exceeds declared Content-Length of {declared} bytes"
+        )
+        self.declared = declared
         self.observed = observed
 
 
@@ -86,6 +102,113 @@ class MaxRequestBodySizeMiddleware:
             "/openapi.json",
         ]
         self.bypass_prefixes = tuple({*(default_bypass), *(bypass_prefixes or [])})
+        # Per-route overrides are derived by walking ``self.app.routes``.
+        # ``self.app`` is the next ASGI layer after this middleware —
+        # for a FastAPI app that is the Starlette ``Router`` instance
+        # (``app.router``) which carries the registered route table.
+        # Walking it lazily on first request avoids any dependency on
+        # cross-layer ``state`` objects (each ASGI layer has its own
+        # ``state``) and works in tests that bypass the FastAPI lifespan.
+        self.route_limits: dict = {}
+        self._route_limits_built: bool = False
+
+    def _ensure_route_limits(self) -> None:
+        """Walk the ASGI chain for the layer that exposes ``.routes`` and
+        collect every endpoint marked with ``_max_body_size``.  This is
+        cached for the lifetime of the middleware instance — the route
+        table is fixed at app build time and does not change at request
+        time.
+
+        Starlette auto-wraps the inner router with ``ServerErrorMiddleware``
+        before user middlewares, so a naive ``getattr(self.app, 'routes', ...)``
+        only sees the error middleware (which has no ``.routes``) and the
+        per-route marker is silently dropped.  Crawl the chain via the
+        ``.app`` attribute until a layer with a route table is found.
+        """
+        if self._route_limits_built:
+            return
+        self._route_limits_built = True
+        limits: dict = {}
+        for route in self._discover_route_table() or []:
+            endpoint = getattr(route, "endpoint", None)
+            marker = getattr(endpoint, "_max_body_size", None)
+            if not marker:
+                continue
+            try:
+                regex = route.path_regex
+            except Exception:  # pragma: no cover - non-Route ASGI apps
+                continue
+            for method in route.methods or set():
+                limits[(method.upper(), regex)] = int(marker)
+        self.route_limits = limits
+
+    def _discover_route_table(self) -> list:
+        """Walk the ASGI chain for the first layer that exposes ``.routes``.
+
+        Bounded (max 8 hops) so a pathological middleware chain can't
+        livelock.  Returns ``[]`` if no layer surfaces a route table —
+        in which case there are simply no per-route overrides to apply.
+        """
+        current: object = self.app
+        seen: set = set()
+        for _ in range(8):
+            if current is None or id(current) in seen:
+                return []
+            seen.add(id(current))
+            routes = getattr(current, "routes", None)
+            if routes:
+                return list(routes)
+            current = getattr(current, "app", None)
+        return []  # pragma: no cover - defensive
+
+    def _route_specific_limit(self, scope) -> Optional[int]:
+        """Return a per-route override for the current request, if any.
+
+        The lookup is regex-based so static paths like
+        ``/v1/ai/upload-large`` and parameterised paths handled by the
+        same Route object both work.
+        """
+        self._ensure_route_limits()
+        if not self.route_limits:
+            return None
+        method = scope.get("method", "").upper()
+        raw_path = scope.get("raw_path") or scope.get("path", "").encode("latin-1")
+        # ``scope["raw_path"]`` is ``bytes`` per the ASGI spec, but
+        # ``route.path_regex`` is an :class:`re.Pattern` compiled from
+        # a ``str`` template — feeding bytes into a str-pattern
+        # raises ``TypeError: cannot use a string pattern on a
+        # bytes-like object``.  Decode to ``str`` before matching,
+        # falling back to the existing ``str`` value so callers that
+        # pass a synthetic ``str`` (e.g. tests skipping raw ASGI) keep
+        # working.
+        if isinstance(raw_path, (bytes, bytearray)):
+            path_for_match = raw_path.decode("latin-1")
+        else:
+            path_for_match = raw_path
+        for (m, regex), limit in self.route_limits.items():
+            if m != method:
+                continue
+            if regex.match(path_for_match):
+                return int(limit)
+        return None
+
+    def _effective_limit(self, scope) -> Optional[int]:
+        """Combine the global cap with a per-route override (if any).
+
+        A route decorated with ``@with_body_size(N)`` declares its own
+        ceiling — that limit takes precedence over the service-wide
+        default.  Routes without a marker fall back to the global
+        ``max_bytes``.  This matches the acceptance criterion in
+        Issue #267 ("honours route-specific value when present") both
+        for routes that want a *larger* cap (e.g. genomic uploads) and
+        for routes that want a *smaller* cap (e.g. low-MB OCR images).
+        """
+        override = self._route_specific_limit(scope)
+        if override is not None:
+            # A non-positive override on a specific route means "no
+            # limit for this route" — useful for telemetry endpoints.
+            return override if override > 0 else None
+        return self.max_bytes
 
     def _is_bypassed(self, path: str) -> bool:
         if path in self.bypass_prefixes:
@@ -106,12 +229,23 @@ class MaxRequestBodySizeMiddleware:
             return await self.app(scope, receive, send)
 
         # No limit configured or no body expected — no-op.
-        if self.max_bytes is None or scope["method"] not in self.METHODS_WITH_BODY:
+        if scope["method"] not in self.METHODS_WITH_BODY:
             return await self.app(scope, receive, send)
 
         path = scope.get("path", "")
         if self._is_bypassed(path):
             return await self.app(scope, receive, send)
+
+        # Resolve the effective cap for this route (Issue #267):
+        # the per-route override declared via ``@with_body_size(N)``
+        # takes precedence over the service-wide default.  The
+        # override map is built lazily by walking ``self.app.routes``,
+        # so no app.state wiring is required.
+        effective_limit = self._effective_limit(scope)
+        if effective_limit is None:
+            return await self.app(scope, receive, send)
+
+        declared_content_length = None
 
         # Eager check on Content-Length. If the client declared a body
         # larger than the limit, reject immediately without consuming any
@@ -123,17 +257,19 @@ class MaxRequestBodySizeMiddleware:
                     content_length_hdr = value.decode("latin-1")
                     break
             if content_length_hdr is not None:
-                declared = int(content_length_hdr)
-                if declared > self.max_bytes:
+                declared_content_length = int(content_length_hdr)
+                if declared_content_length > effective_limit:
                     await self._log_rejection(
                         scope,
-                        declared_or_observed=declared,
+                        declared_or_observed=declared_content_length,
                         reason="declared_size",
+                        limit=effective_limit,
                     )
                     return await self._send_413(
                         send,
-                        observed=declared,
+                        observed=declared_content_length,
                         reason="declared_size",
+                        limit=effective_limit,
                     )
         except (ValueError, TypeError):
             # Malformed Content-Length — fall through to stream counting.
@@ -148,11 +284,18 @@ class MaxRequestBodySizeMiddleware:
             if mtype == "http.request":
                 chunk = message.get("body", b"")
                 total += len(chunk)
-                if total > self.max_bytes:
+
+                # Check if the streamed bytes exceed the client's declared Content-Length
+                if declared_content_length is not None and total > declared_content_length:
+                    raise HTTPBodyLengthMismatch(declared_content_length, total)
+
+                # Check if the streamed bytes exceed the effective limit
+                # (either per-route or service-wide).
+                if total > effective_limit:
                     # Signal the exception so that the outer __call__ can
                     # emit a 413 even if the application has already started
                     # producing a response.
-                    raise HTTPBodyTooLarge(self.max_bytes, total)
+                    raise HTTPBodyTooLarge(effective_limit, total)
             return message
 
         try:
@@ -162,29 +305,45 @@ class MaxRequestBodySizeMiddleware:
                 scope,
                 declared_or_observed=exc.observed,
                 reason="streamed_size",
+                limit=exc.limit,
             )
             await self._send_413(
                 send,
                 observed=exc.observed,
                 reason="streamed_size",
+                limit=exc.limit,
+            )
+        except HTTPBodyLengthMismatch as exc:
+            await self._log_rejection(
+                scope,
+                declared_or_observed=exc.observed,
+                reason="length_mismatch",
+            )
+            await self._send_400_mismatch(
+                send,
+                declared=exc.declared,
+                observed=exc.observed,
             )
 
-    async def _send_413(self, send, observed: int, reason: str):
+    async def _send_413(self, send, observed: int, reason: str, limit: Optional[int] = None):
         """Emit a JSON 413 response using the project's ErrorEnvelope shape.
 
         ``reason`` distinguishes eager (Content-Length) rejection from
         streamed rejection; the message is worded accordingly so the
-        response is precise and not misleading.
+        response is precise and not misleading.  ``limit`` overrides the
+        instance default so per-route overrides (Issue #267) are
+        reflected in the error text.
         """
+        effective = limit if limit is not None else self.max_bytes
         if reason == "declared_size":
             msg = (
                 f"Declared request body of {observed} bytes exceeds the "
-                f"maximum allowed size of {self.max_bytes} bytes."
+                f"maximum allowed size of {effective} bytes."
             )
         else:
             msg = (
                 f"Request body streamed so far ({observed} bytes) exceeds "
-                f"the maximum allowed size of {self.max_bytes} bytes."
+                f"the maximum allowed size of {effective} bytes."
             )
 
         envelope = ErrorEnvelope(
@@ -207,27 +366,58 @@ class MaxRequestBodySizeMiddleware:
         )
         await send({"type": "http.response.body", "body": body})
 
+    async def _send_400_mismatch(self, send, declared: int, observed: int):
+        """Emit a JSON 400 Bad Request response when streamed body size
+        exceeds the declared Content-Length header.
+        """
+        msg = (
+            f"Request body size of {observed} bytes exceeds the declared "
+            f"Content-Length of {declared} bytes."
+        )
+        envelope = ErrorEnvelope(
+            error=ErrorDetail(
+                code="CODE_BODY_LENGTH_MISMATCH",
+                message=msg,
+            )
+        ).model_dump()
+        body = json.dumps(envelope).encode("utf-8")
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 400,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
     async def _log_rejection(
         self,
         scope,
         declared_or_observed: int,
         reason: str,
+        limit: Optional[int] = None,
     ) -> None:
         """Emit a structured warning so operators can correlate DoS attempts.
 
         ``reason`` is either ``"declared_size"`` (Content-Length spoofing)
-        or ``"streamed_size"`` (chunked transfer smuggling), so logs
-        differentiate between attack classes.
+        or ``"streamed_size"`` (chunked transfer smuggling), or ``"length_mismatch"``,
+        so logs differentiate between attack classes.  ``limit`` is the
+        effective cap (global or per-route) for the request.
         """
         client = scope.get("client")
         client_str = f"{client[0]}:{client[1]}" if client else "unknown"
+        effective = limit if limit is not None else self.max_bytes
         logger.warning(
             "request body rejected: method=%s path=%s bytes=%d limit=%d "
             "client=%s reason=%s",
             scope.get("method"),
             scope.get("path"),
             declared_or_observed,
-            self.max_bytes,
+            effective,
             client_str,
             reason,
         )
@@ -250,17 +440,49 @@ logger = logging.getLogger(__name__)
 # the ocr_router) need an explicit redirect entry here.  The OCR route is
 # still served by the legacy router above so no redirect is needed for it.
 # ---------------------------------------------------------------------------
-_LEGACY_TO_V1: dict = {
-    "/ai/inference": "/v1/ai/inference",
-    "/ai/proof-of-life": "/v1/ai/proof-of-life",
-    "/ai/anonymize": "/v1/ai/anonymize",
-    "/ai/humanitarian/verify": "/v1/ai/humanitarian/verify",
-}
+import os
+from typing import Dict, List, Tuple, Type
+from pydantic import BaseModel
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
-# Prefix-based redirects for parameterised routes (matched in order).
+class LegacyPrefixMapItem(BaseModel):
+    legacy_prefix: str
+    v1_prefix: str
+
+class LegacyRedirectsConfig(BaseSettings):
+    legacy_to_v1: Dict[str, str]
+    legacy_prefix_map: List[LegacyPrefixMapItem]
+
+    model_config = SettingsConfigDict(
+        yaml_file=os.path.join(os.path.dirname(__file__), "config", "legacy_redirects.yaml"),
+        yaml_file_encoding='utf-8'
+    )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: Type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+        return (YamlConfigSettingsSource(settings_cls),)
+
+_legacy_yaml_path = os.path.join(os.path.dirname(__file__), "config", "legacy_redirects.yaml")
+if not os.path.exists(_legacy_yaml_path):
+    raise RuntimeError(f"Required configuration file not found: {_legacy_yaml_path}")
+
+_legacy_config = LegacyRedirectsConfig()
+
+_LEGACY_TO_V1: dict = _legacy_config.legacy_to_v1
 _LEGACY_PREFIX_MAP: list = [
-    ("/ai/status/", "/v1/ai/status/"),
-    ("/ai/task/", "/v1/ai/task/"),
+    (item.legacy_prefix, item.v1_prefix) for item in _legacy_config.legacy_prefix_map
 ]
 
 
@@ -276,8 +498,71 @@ async def lifespan(app: FastAPI):
     logger.info(f"Redis configured: {settings.redis_url}")
     logger.info(f"Backend webhook URL: {settings.backend_webhook_url}")
 
-    yield
-    logger.info("Shutting down ChainForge AI Service...")
+    # ---- Issue #274: PII decisions retention sweeper --------------------
+    # Initialize the audit store + kick off a periodic sweep so audit rows
+    # never live past ``pii_decisions_retention_days``.  The task is
+    # cancelled cleanly on shutdown so uvicorn reloads don't leak loops.
+    sweep_task: Optional[asyncio.Task] = None
+    try:
+        import asyncio as _asyncio
+        from persistence.pii_decisions import PIIDecisionStore
+
+        if settings.pii_decisions_enabled:
+            store = PIIDecisionStore(settings.pii_decisions_db_path)
+            store.initialize()
+            # Sweep once at boot to absorb any rows left over from a
+            # previous deployment that aged past the new retention.
+            try:
+                removed = store.sweep_expired_decisions()
+                if removed:
+                    logger.info(
+                        "pii_decisions startup sweep removed %d expired rows",
+                        removed,
+                    )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.error("initial pii_decisions sweep failed: %s", exc)
+
+            interval = max(60, int(settings.pii_decisions_sweep_interval_seconds))
+
+            async def _sweep_loop() -> None:
+                while True:
+                    try:
+                        await _asyncio.sleep(interval)
+                        store = PIIDecisionStore(settings.pii_decisions_db_path)
+                        removed = store.sweep_expired_decisions()
+                        if removed:
+                            logger.info(
+                                "pii_decisions sweep removed %d expired rows",
+                                removed,
+                            )
+                    except _asyncio.CancelledError:
+                        raise
+                    except Exception as exc:  # pragma: no cover - defensive
+                        logger.error("periodic pii_decisions sweep failed: %s", exc)
+
+            sweep_task = _asyncio.create_task(_sweep_loop(), name="pii-decisions-sweep")
+            logger.info(
+                "pii_decisions sweep loop started (interval=%ss, retention=%sd)",
+                interval,
+                settings.pii_decisions_retention_days,
+            )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("pii_decisions sweep wiring failed: %s", exc)
+
+    # Per-route body-size overrides (Issue #267) are resolved on demand
+    # by walking ``app.router.routes`` inside the middleware; no
+    # lifespan wiring is needed here.
+
+    try:
+        yield
+    finally:
+        if sweep_task is not None:
+            sweep_task.cancel()
+            try:
+                await sweep_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        logger.info("Shutting down ChainForge AI Service...")
 
 
 app = FastAPI(
@@ -352,6 +637,35 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
+def get_sunset_header_value() -> str:
+    val = settings.legacy_retirement_date
+    if not val:
+        return ""
+    val = val.strip()
+    # Try parsing various date formats to normalize to RFC 1123
+    for fmt in (
+        "%Y-%m-%d",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%d %H:%M:%S",
+        "%a, %d %b %Y %H:%M:%S %Z",
+        "%a, %d %b %Y %H:%M:%S",
+    ):
+        try:
+            dt = datetime.strptime(val, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return email.utils.format_datetime(dt, usegmt=True)
+        except ValueError:
+            continue
+    try:
+        dt = email.utils.parsedate_to_datetime(val)
+        return email.utils.format_datetime(dt, usegmt=True)
+    except Exception:
+        pass
+    return val
+
+
 @app.middleware("http")
 async def legacy_redirect_middleware(request: Request, call_next):
     """
@@ -367,25 +681,38 @@ async def legacy_redirect_middleware(request: Request, call_next):
     The /ai/metrics path is also excluded - it has no v1 equivalent.
     """
     path = request.url.path
+    is_legacy = path.startswith("/ai/") and path != "/ai/metrics"
 
-    # Exact-match redirects
-    if path in _LEGACY_TO_V1:
-        target = _LEGACY_TO_V1[path]
-        if request.url.query:
-            target = f"{target}?{request.url.query}"
-        logger.debug(f"Legacy redirect: {path} -> {target}")
-        return RedirectResponse(url=target, status_code=308)
-
-    # Prefix-based redirects (parameterised routes)
-    for legacy_prefix, v1_prefix in _LEGACY_PREFIX_MAP:
-        if path.startswith(legacy_prefix):
-            target = v1_prefix + path[len(legacy_prefix) :]
+    response = None
+    if is_legacy:
+        # Exact-match redirects
+        if path in _LEGACY_TO_V1:
+            target = _LEGACY_TO_V1[path]
             if request.url.query:
                 target = f"{target}?{request.url.query}"
-            logger.debug(f"Legacy prefix redirect: {path} -> {target}")
-            return RedirectResponse(url=target, status_code=308)
+            logger.debug(f"Legacy redirect: {path} -> {target}")
+            response = RedirectResponse(url=target, status_code=308)
+        else:
+            # Prefix-based redirects (parameterised routes)
+            for legacy_prefix, v1_prefix in _LEGACY_PREFIX_MAP:
+                if path.startswith(legacy_prefix):
+                    target = v1_prefix + path[len(legacy_prefix) :]
+                    if request.url.query:
+                        target = f"{target}?{request.url.query}"
+                    logger.debug(f"Legacy prefix redirect: {path} -> {target}")
+                    response = RedirectResponse(url=target, status_code=308)
+                    break
 
-    return await call_next(request)
+    if response is None:
+        response = await call_next(request)
+
+    if is_legacy:
+        sunset_val = get_sunset_header_value()
+        if sunset_val:
+            response.headers["Sunset"] = sunset_val
+        response.headers["Deprecation"] = "true"
+
+    return response
 
 
 @app.middleware("http")

@@ -1,12 +1,14 @@
 import { ApiKeyGuard } from './api-key.guard';
 import { UnauthorizedException } from '@nestjs/common';
 import { AppRole } from '../../auth/app-role.enum';
+import { createHash } from 'node:crypto';
+import { hashApiKey } from '../../api-keys/api-key-hash.util';
 
 const mockReflector = { getAllAndOverride: jest.fn().mockReturnValue(false) };
 const mockConfigService = { get: jest.fn().mockReturnValue('test-api-key') };
 const mockPrismaService = {
   apiKey: {
-    findFirst: jest.fn(),
+    findMany: jest.fn(),
     update: jest.fn(),
   },
 };
@@ -29,7 +31,7 @@ describe('ApiKeyGuard', () => {
     jest.clearAllMocks();
     mockReflector.getAllAndOverride.mockReturnValue(false);
     mockConfigService.get.mockReturnValue('test-api-key');
-    mockPrismaService.apiKey.findFirst.mockResolvedValue(null);
+    mockPrismaService.apiKey.findMany.mockResolvedValue([]);
     mockPrismaService.apiKey.update.mockResolvedValue({});
 
     guard = new ApiKeyGuard(
@@ -40,11 +42,14 @@ describe('ApiKeyGuard', () => {
   });
 
   it('should allow request with valid API key found in DB and attach role', async () => {
-    mockPrismaService.apiKey.findFirst.mockResolvedValue({
-      id: '1',
-      key: 'test-api-key',
-      role: AppRole.admin,
-    });
+    mockPrismaService.apiKey.findMany.mockResolvedValue([
+      {
+        id: '1',
+        keyHash: await hashApiKey('test-api-key'),
+        role: AppRole.admin,
+        ngoId: null,
+      },
+    ]);
 
     const context = createContext({ 'x-api-key': 'test-api-key' });
     const result = await guard.canActivate(context as any);
@@ -61,11 +66,14 @@ describe('ApiKeyGuard', () => {
   });
 
   it('should attach correct role from DB record for operator', async () => {
-    mockPrismaService.apiKey.findFirst.mockResolvedValue({
-      id: '2',
-      key: 'operator-key',
-      role: AppRole.operator,
-    });
+    mockPrismaService.apiKey.findMany.mockResolvedValue([
+      {
+        id: '2',
+        keyHash: await hashApiKey('operator-key'),
+        role: AppRole.operator,
+        ngoId: null,
+      },
+    ]);
 
     const context = createContext({ 'x-api-key': 'operator-key' });
     await guard.canActivate(context as any);
@@ -75,7 +83,7 @@ describe('ApiKeyGuard', () => {
   });
 
   it('should fall back to env key and assign admin role when no DB record', async () => {
-    mockPrismaService.apiKey.findFirst.mockResolvedValue(null);
+    mockPrismaService.apiKey.findMany.mockResolvedValue([]);
 
     const context = createContext({ 'x-api-key': 'test-api-key' });
     const result = await guard.canActivate(context as any);
@@ -93,7 +101,7 @@ describe('ApiKeyGuard', () => {
   });
 
   it('should throw UnauthorizedException with invalid API key (no DB record, no env match)', async () => {
-    mockPrismaService.apiKey.findFirst.mockResolvedValue(null);
+    mockPrismaService.apiKey.findMany.mockResolvedValue([]);
     mockConfigService.get.mockReturnValue('different-env-key');
 
     const context = createContext({ 'x-api-key': 'wrong-key' });
@@ -104,12 +112,31 @@ describe('ApiKeyGuard', () => {
 
   it('should reject revoked keys immediately', async () => {
     // Guard queries with `revokedAt: null`, so a revoked record should not match
-    mockPrismaService.apiKey.findFirst.mockResolvedValue(null);
+    mockPrismaService.apiKey.findMany.mockResolvedValue([]);
 
     const context = createContext({ 'x-api-key': 'revoked-key' });
     await expect(guard.canActivate(context as any)).rejects.toThrow(
       UnauthorizedException,
     );
+  });
+
+  it('should reject legacy SHA-256 keyHash values', async () => {
+    mockConfigService.get.mockReturnValue('different-env-key');
+    mockPrismaService.apiKey.findMany.mockResolvedValue([
+      {
+        id: 'legacy',
+        keyHash: createHash('sha256').update('test-api-key').digest('hex'),
+        role: AppRole.admin,
+        ngoId: null,
+      },
+    ]);
+
+    const context = createContext({ 'x-api-key': 'test-api-key' });
+
+    await expect(guard.canActivate(context as any)).rejects.toThrow(
+      UnauthorizedException,
+    );
+    expect(mockPrismaService.apiKey.update).not.toHaveBeenCalled();
   });
 
   it('should allow public routes without API key', async () => {

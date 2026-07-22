@@ -46,6 +46,7 @@
     "@sendgrid/mail": "^8.1.5",
     "@stellar/stellar-sdk": "^14.6.1",
     "@willsoto/nestjs-prometheus": "^6.0.2",
+    "argon2": "^0.45.1",
     "axios": "^1.13.6",
     "bull": "^4.16.5",
     "bullmq": "^5.79.0",

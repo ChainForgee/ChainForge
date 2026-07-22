@@ -1,12 +1,13 @@
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { AuthOidcModule } from '../src/auth-oidc/auth-oidc.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../cache/redis.service';
 import { AppRole } from '../src/auth/app-role.enum';
+import { hashApiKey } from '../src/api-keys/api-key-hash.util';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -16,6 +17,12 @@ const { privateKey, publicKey } = generateKeyPairSync('rsa', {
 
 describe('OIDC token flow (e2e)', () => {
   let app: INestApplication;
+  const prisma = {
+    apiKey: {
+      findMany: jest.fn(),
+      update: jest.fn().mockResolvedValue({}),
+    },
+  };
   const revoked = new Map<string, number>();
   const redisClient = {
     zscore: jest.fn((_key: string, jti: string) => {
@@ -39,17 +46,6 @@ describe('OIDC token flow (e2e)', () => {
   };
 
   beforeAll(async () => {
-    const prisma = {
-      apiKey: {
-        findFirst: jest.fn().mockResolvedValue({
-          id: 'api-key-1',
-          role: AppRole.operator,
-          ngoId: 'ngo-1',
-        }),
-        update: jest.fn().mockResolvedValue({}),
-      },
-    };
-
     const config = {
       get: jest.fn((key: string) => {
         const values: Record<string, string> = {
@@ -88,6 +84,15 @@ describe('OIDC token flow (e2e)', () => {
   });
 
   it('issues, uses, refreshes, revokes, and introspects a JWT token', async () => {
+    prisma.apiKey.findMany.mockResolvedValue([
+      {
+        id: 'api-key-1',
+        keyHash: await hashApiKey('api-key-secret'),
+        role: AppRole.operator,
+        ngoId: 'ngo-1',
+      },
+    ]);
+
     const issueResponse = await request(app.getHttpServer())
       .post('/oauth/token')
       .send({
@@ -140,5 +145,26 @@ describe('OIDC token flow (e2e)', () => {
       .expect(201);
 
     expect(introspectResponse.body).toEqual({ active: false });
+  });
+
+  it('rejects a client secret backed only by a legacy SHA-256 keyHash', async () => {
+    prisma.apiKey.findMany.mockResolvedValue([
+      {
+        id: 'legacy-api-key',
+        keyHash: createHash('sha256').update('api-key-secret').digest('hex'),
+        role: AppRole.operator,
+        ngoId: 'ngo-1',
+      },
+    ]);
+
+    await request(app.getHttpServer())
+      .post('/oauth/token')
+      .send({
+        grant_type: 'client_credentials',
+        client_secret: 'api-key-secret',
+      })
+      .expect(401);
+
+    expect(prisma.apiKey.update).not.toHaveBeenCalled();
   });
 });

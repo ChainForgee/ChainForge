@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { generateKeyPairSync } from 'node:crypto';
 import { decodeJwt, importPKCS8, SignJWT } from 'jose';
 import { AppRole } from '../src/auth/app-role.enum';
+import { hashApiKey } from '../src/api-keys/api-key-hash.util';
 import { TokenController } from '../src/auth-oidc/token.controller';
 import { TokenService } from '../src/auth-oidc/token.service';
 
@@ -34,7 +35,7 @@ function makeTokenService(overrides: Record<string, string | undefined> = {}) {
   };
   const prisma = {
     apiKey: {
-      findFirst: jest.fn(),
+      findMany: jest.fn(),
       update: jest.fn().mockResolvedValue({}),
     },
   };
@@ -72,7 +73,7 @@ describe('TokenService', () => {
 
   it('rejects missing and invalid client credentials', async () => {
     const { service, prisma } = makeTokenService();
-    prisma.apiKey.findFirst.mockResolvedValue(null);
+    prisma.apiKey.findMany.mockResolvedValue([]);
 
     await expect(service.issueForClientCredentials(undefined)).rejects.toThrow(
       UnauthorizedException,
@@ -84,11 +85,14 @@ describe('TokenService', () => {
 
   it('issues tokens for stored API keys and exposes active introspection data', async () => {
     const { service, prisma } = makeTokenService();
-    prisma.apiKey.findFirst.mockResolvedValue({
-      id: 'api-key-1',
-      role: AppRole.operator,
-      ngoId: 'ngo-1',
-    });
+    prisma.apiKey.findMany.mockResolvedValue([
+      {
+        id: 'api-key-1',
+        keyHash: await hashApiKey('api-key-secret'),
+        role: AppRole.operator,
+        ngoId: 'ngo-1',
+      },
+    ]);
 
     const pair = await service.issueForClientCredentials('api-key-secret');
     const verified = await service.verifyAccessToken(pair.access_token);
@@ -122,7 +126,7 @@ describe('TokenService', () => {
       JWT_ACCESS_TOKEN_TTL_SECONDS: '0',
       JWT_REFRESH_TOKEN_TTL_SECONDS: 'not-a-number',
     });
-    prisma.apiKey.findFirst.mockResolvedValue(null);
+    prisma.apiKey.findMany.mockResolvedValue([]);
 
     const pair = await service.issueForClientCredentials('env-api-key');
     const verified = await service.verifyAccessToken(pair.access_token);
@@ -134,11 +138,14 @@ describe('TokenService', () => {
 
   it('refreshes tokens and revokes the old refresh token', async () => {
     const { service, prisma, redisClient } = makeTokenService();
-    prisma.apiKey.findFirst.mockResolvedValue({
-      id: 'api-key-1',
-      role: AppRole.operator,
-      ngoId: null,
-    });
+    prisma.apiKey.findMany.mockResolvedValue([
+      {
+        id: 'api-key-1',
+        keyHash: await hashApiKey('api-key-secret'),
+        role: AppRole.operator,
+        ngoId: null,
+      },
+    ]);
     const pair = await service.issueForClientCredentials('api-key-secret');
 
     const refreshed = await service.refresh(pair.refresh_token);
@@ -225,7 +232,7 @@ describe('TokenService', () => {
     const { service, prisma } = makeTokenService({
       JWT_PRIVATE_KEY: undefined,
     });
-    prisma.apiKey.findFirst.mockResolvedValue(null);
+    prisma.apiKey.findMany.mockResolvedValue([]);
 
     await expect(
       service.issueForClientCredentials('env-api-key'),

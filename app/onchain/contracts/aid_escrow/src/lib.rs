@@ -974,7 +974,12 @@ impl AidEscrow {
         Self::decrement_locked(&env, &package.token, package.amount);
 
         // Transition aggregate totals: Created → Claimed
-        Self::add_to_status_totals(&env, &package.token, PackageStatus::Created, -package.amount);
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Created,
+            -package.amount,
+        );
         Self::add_to_status_totals(&env, &package.token, PackageStatus::Claimed, package.amount);
 
         let timestamp = env.ledger().timestamp();
@@ -1014,8 +1019,18 @@ impl AidEscrow {
         Self::decrement_locked(&env, &package.token, package.amount);
 
         // Transition aggregate totals: Created → Cancelled (counts as expired/cancelled)
-        Self::add_to_status_totals(&env, &package.token, PackageStatus::Created, -package.amount);
-        Self::add_to_status_totals(&env, &package.token, PackageStatus::Cancelled, package.amount);
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Created,
+            -package.amount,
+        );
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Cancelled,
+            package.amount,
+        );
 
         let timestamp = env.ledger().timestamp();
         PackageRevoked {
@@ -1087,8 +1102,18 @@ impl AidEscrow {
 
         // Transition aggregate totals: if the package was Committed, move it to expired/cancelled.
         if was_committed {
-            Self::add_to_status_totals(&env, &package.token, PackageStatus::Created, -package.amount);
-            Self::add_to_status_totals(&env, &package.token, PackageStatus::Refunded, package.amount);
+            Self::add_to_status_totals(
+                &env,
+                &package.token,
+                PackageStatus::Created,
+                -package.amount,
+            );
+            Self::add_to_status_totals(
+                &env,
+                &package.token,
+                PackageStatus::Refunded,
+                package.amount,
+            );
         }
 
         let timestamp = env.ledger().timestamp();
@@ -1137,8 +1162,18 @@ impl AidEscrow {
         Self::decrement_locked(&env, &package.token, package.amount);
 
         // Transition aggregate totals: Created → Cancelled (counts as expired/cancelled)
-        Self::add_to_status_totals(&env, &package.token, PackageStatus::Created, -package.amount);
-        Self::add_to_status_totals(&env, &package.token, PackageStatus::Cancelled, package.amount);
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Created,
+            -package.amount,
+        );
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Cancelled,
+            package.amount,
+        );
 
         let timestamp = env.ledger().timestamp();
         PackageRevoked {

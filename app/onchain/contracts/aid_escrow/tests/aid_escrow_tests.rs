@@ -643,6 +643,101 @@ mod token_decimal_normalization {
         assert!(result.is_ok());
     }
 }
+
+// ===========================================================================
+// get_distributor_list — Tests
+// ===========================================================================
+
+mod get_distributor_list {
+    use super::*;
+
+    #[test]
+    fn returns_empty_vec_after_init() {
+        let t = TestSetup::new();
+        let list = t.client.get_distributor_list();
+        assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    fn returns_single_distributor_after_add() {
+        let t = TestSetup::new();
+        let addr = Address::generate(&t.env);
+        t.client.add_distributor(&addr);
+        let list = t.client.get_distributor_list();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list.get(0).unwrap(), addr);
+    }
+
+    #[test]
+    fn returns_empty_after_add_then_remove() {
+        let t = TestSetup::new();
+        let addr = Address::generate(&t.env);
+        t.client.add_distributor(&addr);
+        t.client.remove_distributor(&addr);
+        let list = t.client.get_distributor_list();
+        assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    fn returns_sorted_list_after_multiple_adds() {
+        let t = TestSetup::new();
+        let addr1 = Address::generate(&t.env);
+        let addr2 = Address::generate(&t.env);
+        let addr3 = Address::generate(&t.env);
+
+        // Add in non-sorted order
+        t.client.add_distributor(&addr3);
+        t.client.add_distributor(&addr1);
+        t.client.add_distributor(&addr2);
+
+        let list = t.client.get_distributor_list();
+        assert_eq!(list.len(), 3);
+
+        // Verify the list is sorted by checking each element's relative ordering.
+        // Since Address implements Ord via the host, we compare adjacent pairs.
+        assert!(list.get(0).unwrap() <= list.get(1).unwrap());
+        assert!(list.get(1).unwrap() <= list.get(2).unwrap());
+
+        // All three addresses must be present
+        let mut found = [false; 3];
+        for i in 0..3 {
+            let addr = list.get(i).unwrap();
+            if addr == addr1 { found[0] = true; }
+            if addr == addr2 { found[1] = true; }
+            if addr == addr3 { found[2] = true; }
+        }
+        assert!(found.iter().all(|&f| f), "all addresses must be present");
+    }
+
+    #[test]
+    fn reflects_removal_in_list() {
+        let t = TestSetup::new();
+        let addr1 = Address::generate(&t.env);
+        let addr2 = Address::generate(&t.env);
+
+        t.client.add_distributor(&addr1);
+        t.client.add_distributor(&addr2);
+        assert_eq!(t.client.get_distributor_list().len(), 2);
+
+        t.client.remove_distributor(&addr1);
+        let list = t.client.get_distributor_list();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list.get(0).unwrap(), addr2);
+    }
+
+    #[test]
+    fn duplicate_add_is_idempotent() {
+        let t = TestSetup::new();
+        let addr = Address::generate(&t.env);
+
+        t.client.add_distributor(&addr);
+        t.client.add_distributor(&addr); // duplicate add
+
+        let list = t.client.get_distributor_list();
+        assert_eq!(list.len(), 1, "duplicate add must not create duplicate entry");
+        assert_eq!(list.get(0).unwrap(), addr);
+    }
+}
 #[test]
 fn test_claim_with_proof_oversized_fails() {
     let env = Env::default();

@@ -408,6 +408,22 @@ impl AidEscrow {
         Ok(())
     }
 
+    /// Returns the list of currently registered distributor addresses.
+    ///
+    /// Returns an empty `Vec` if no distributors have been added.
+    /// The result is sorted for deterministic ordering, making it suitable
+    /// for off-chain indexers and audit dashboards.
+    pub fn get_distributor_list(env: Env) -> Vec<Address> {
+        let distributors: Map<Address, bool> = env
+            .storage()
+            .instance()
+            .get(&KEY_DISTRIBUTORS)
+            .unwrap_or(Map::new(&env));
+        let mut keys = distributors.keys();
+        keys.sort();
+        keys
+    }
+
     /// Admin-only. Updates the global contract configuration.
     ///
     /// # Arguments

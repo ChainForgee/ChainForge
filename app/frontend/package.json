@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "jest",
+    "test:e2e": "playwright test",
     "type-check": "tsc --noEmit",
     "generate:api": "openapi-typescript openapi.json -o src/lib/generated/api.ts"
   },
@@ -37,6 +38,7 @@
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",

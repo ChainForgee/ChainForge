@@ -10,6 +10,22 @@ import Home from '@/app/[locale]/page';
 import CampaignsPage from '@/app/[locale]/campaigns/page';
 import ClaimReceiptPage from '@/app/[locale]/claim-receipt/page';
 
+jest.mock('@/lib/api-client', () => ({
+  apiClient: {
+    GET: jest.fn(async () => ({
+      data: {
+        claimId: 'claim-123',
+        packageId: 'AID-001',
+        status: 'disbursed',
+        amount: 150.5,
+        timestamp: new Date().toISOString(),
+      },
+      error: undefined,
+      response: { status: 200 },
+    })),
+  },
+}));
+
 expect.extend(toHaveNoViolations);
 
 // jsdom has no layout engine, so color-contrast cannot be computed here.
@@ -186,8 +202,10 @@ describe('accessibility (axe, WCAG 2.2 AA automated subset)', () => {
   });
 
   it('claim receipt page with claimId has no axe violations', async () => {
-    mockSearchParams.current = new URLSearchParams('claimId=claim-123');
-    const { container } = renderWithProviders(<ClaimReceiptPage />);
+    const ui = await ClaimReceiptPage({
+      searchParams: Promise.resolve({ claimId: 'claim-123' }),
+    });
+    const { container } = renderWithProviders(ui);
 
     await waitFor(() => {
       expect(screen.getByText('What is this receipt?')).toBeInTheDocument();
@@ -197,7 +215,8 @@ describe('accessibility (axe, WCAG 2.2 AA automated subset)', () => {
   });
 
   it('claim receipt page without claimId (error state) has no axe violations', async () => {
-    const { container } = renderWithProviders(<ClaimReceiptPage />);
+    const ui = await ClaimReceiptPage({ searchParams: Promise.resolve({}) });
+    const { container } = renderWithProviders(ui);
 
     await waitFor(() => {
       expect(screen.getByText('Claim ID not provided')).toBeInTheDocument();

@@ -39,6 +39,7 @@ import { Throttle } from '@nestjs/throttler';
 import { OrgOwnershipGuard } from '../common/guards/org-ownership.guard';
 import { CancelAndReissueService } from '../claims/cancel-and-reissue.service';
 import { BudgetService } from '../common/budget/budget.service';
+import { HttpCacheTtl } from 'src/common/decorators/http-cache.decorator';
 
 @ApiTags('Campaigns')
 @ApiBearerAuth('JWT-auth')
@@ -71,6 +72,7 @@ export class CampaignsController {
   }
 
   @Throttle({ default: { ttl: 60000, limit: 10 } }) // Limit to 10 requests per minute for this endpoint
+  @HttpCacheTtl(30) // Response cached for 30 seconds
   @Get()
   @ApiOperation({
     summary: 'List all campaigns',
@@ -93,6 +95,7 @@ export class CampaignsController {
   }
 
   @Get(':id')
+  @HttpCacheTtl(30) // Response cached for 30 seconds
   @ApiOperation({
     summary: 'Get campaign details',
     description: 'Retrieves metadata and status for a specific campaign.',
@@ -217,7 +220,8 @@ export class CampaignsController {
       return { error: 'Campaign not found' };
     }
     const usage = await this.budgetService.getCampaignBudgetUsage(id);
-    const available = campaign.budget - usage.locked - usage.disbursed;
+    const available =
+      campaign.budget.toNumber() - usage.locked - usage.disbursed;
     return {
       campaignId: id,
       budget: campaign.budget,

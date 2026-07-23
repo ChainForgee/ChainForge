@@ -39,6 +39,10 @@ const KEY_PAUSE_CLAIM: Symbol = symbol_short!("p_claim");
 const KEY_PAUSE_WITHDRAW: Symbol = symbol_short!("p_wdrw");
 const KEY_TOTAL_CLAIMED: Symbol = symbol_short!("claimed"); // Map<Address, i128>
 const META_MERKLE_ROOT_KEY: &str = "merkle_root";
+const META_MERKLE_ROOT_EXPIRES_AT_KEY: &str = "merkle_root_expires_at";
+const KEY_PENDING_ADMIN: Symbol = symbol_short!("pendadm");
+const KEY_ADMIN_DEADLINE: Symbol = symbol_short!("admdln");
+const DEFAULT_ADMIN_DEADLINE: u64 = 7 * 24 * 60 * 60; // 7 days in seconds
 
 // --- Data Types ---
 
@@ -105,6 +109,11 @@ pub enum Error {
     InvalidProof = 16,
     InvalidToken = 17,
     TokenTransferFailed = 18,
+    // Merkle allowlist root has expired (merkle_root_expires_at <= now)
+    AllowlistExpired = 19,
+    ProofTooLarge = 20,
+    NoPendingAdmin = 21,
+    AdminRotationExpired = 22,
 }
 
 // --- Contract Events (indexer-friendly; stable topics & payloads) ---
@@ -208,6 +217,12 @@ pub struct ActionUnpausedEvent {
     pub action: Symbol,
 }
 
+#[contractevent]
+pub struct AdminRotatedEvent {
+    pub old_admin: Address,
+    pub new_admin: Address,
+}
+
 #[contract]
 pub struct AidEscrow;
 
@@ -252,6 +267,70 @@ impl AidEscrow {
     /// Defaults to `0` if the contract has never been initialized.
     pub fn get_version(env: Env) -> u32 {
         env.storage().instance().get(&KEY_VERSION).unwrap_or(0)
+    }
+
+    /// Returns the pending admin address, if any.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&KEY_PENDING_ADMIN)
+    }
+
+    /// Admin-only. Initiates a two-step admin rotation by setting a pending admin.
+    /// The pending admin must call `accept_admin()` within the deadline to complete the rotation.
+    ///
+    /// # Arguments
+    /// * `new_admin` — The address of the proposed new admin.
+    ///
+    /// # Errors
+    /// Returns `Error::NotAuthorized` if caller is not the current admin.
+    pub fn rotate_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin = Self::get_admin(env.clone())?;
+        admin.require_auth();
+
+        let deadline = env.ledger().timestamp() + DEFAULT_ADMIN_DEADLINE;
+        env.storage().instance().set(&KEY_PENDING_ADMIN, &new_admin);
+        env.storage().instance().set(&KEY_ADMIN_DEADLINE, &deadline);
+        Ok(())
+    }
+
+    /// Pending-admin-only. Completes the admin rotation.
+    /// Must be called by the pending admin within the deadline (7 days by default).
+    /// Emits an `AdminRotatedEvent`.
+    ///
+    /// # Errors
+    /// Returns `Error::NoPendingAdmin` if no rotation is in progress.
+    /// Returns `Error::AdminRotationExpired` if the deadline has passed.
+    /// Returns `Error::NotAuthorized` if caller is not the pending admin.
+    pub fn accept_admin(env: Env) -> Result<(), Error> {
+        let pending_admin: Address = env
+            .storage()
+            .instance()
+            .get(&KEY_PENDING_ADMIN)
+            .ok_or(Error::NoPendingAdmin)?;
+
+        let deadline: u64 = env
+            .storage()
+            .instance()
+            .get(&KEY_ADMIN_DEADLINE)
+            .unwrap_or(0);
+
+        if env.ledger().timestamp() > deadline {
+            return Err(Error::AdminRotationExpired);
+        }
+
+        pending_admin.require_auth();
+
+        let old_admin = Self::get_admin(env.clone())?;
+        env.storage().instance().set(&KEY_ADMIN, &pending_admin);
+        env.storage().instance().remove(&KEY_PENDING_ADMIN);
+        env.storage().instance().remove(&KEY_ADMIN_DEADLINE);
+
+        AdminRotatedEvent {
+            old_admin,
+            new_admin: pending_admin,
+        }
+        .publish(&env);
+
+        Ok(())
     }
 
     /// Returns the semantic version of the contract package.
@@ -804,6 +883,13 @@ impl AidEscrow {
         proof: Vec<String>,
     ) -> Result<(), Error> {
         Self::check_action_paused(&env, symbol_short!("claim"))?;
+
+        // --- ENFORCE MERKLE PROOF CAP ---
+        if proof.len() > 32 {
+            return Err(Error::ProofTooLarge);
+        }
+        // ---------------------------------
+
         let key = (symbol_short!("pkg"), id);
         let mut package: Package = env
             .storage()
@@ -828,9 +914,11 @@ impl AidEscrow {
 
         match Self::merkle_root_from_metadata(&env, &package.metadata) {
             Some(root) => {
-                if !Self::verify_merkle_proof_for_claimant(&env, &claimant, &proof, root) {
-                    return Err(Error::InvalidProof);
-                }
+                let expires_at =
+                    Self::merkle_root_expires_at_from_metadata(&env, &package.metadata);
+                Self::verify_merkle_proof_for_claimant(
+                    &env, &claimant, &proof, root, expires_at, now,
+                )?;
                 Self::finalize_claim(&env, &key, &mut package, id, &claimant, now)
             }
             None => {
@@ -1325,23 +1413,41 @@ impl AidEscrow {
             .and_then(|hex| Self::parse_hex_32(&hex))
     }
 
+    /// Reads the optional `merkle_root_expires_at` metadata field.
+    /// Returns `0` (never expires) when absent or unparseable.
+    fn merkle_root_expires_at_from_metadata(env: &Env, metadata: &Map<Symbol, String>) -> u64 {
+        let key = Symbol::new(env, META_MERKLE_ROOT_EXPIRES_AT_KEY);
+        match metadata.get(key) {
+            Some(raw) => Self::parse_u64(raw).unwrap_or(0),
+            None => 0,
+        }
+    }
+
     fn verify_merkle_proof_for_claimant(
         env: &Env,
         claimant: &Address,
         proof: &Vec<String>,
         expected_root: [u8; 32],
-    ) -> bool {
+        expires_at: u64,
+        now: u64,
+    ) -> Result<(), Error> {
+        // Reject stale-but-active roots before doing any proof work. An
+        // expiry of 0 means the allowlist never expires (legacy packages).
+        if expires_at > 0 && expires_at <= now {
+            return Err(Error::AllowlistExpired);
+        }
+
         let mut current = Self::hash_address(env, claimant);
 
         for i in 0..proof.len() {
             let sibling_hex = match proof.get(i) {
                 Some(v) => v,
-                None => return false,
+                None => return Err(Error::InvalidProof),
             };
 
             let sibling = match Self::parse_hex_32(&sibling_hex) {
                 Some(v) => v,
-                None => return false,
+                None => return Err(Error::InvalidProof),
             };
 
             current = if current <= sibling {
@@ -1351,7 +1457,11 @@ impl AidEscrow {
             };
         }
 
-        current == expected_root
+        if current == expected_root {
+            Ok(())
+        } else {
+            Err(Error::InvalidProof)
+        }
     }
 
     fn hash_address(env: &Env, address: &Address) -> [u8; 32] {

@@ -45,6 +45,15 @@ const DEFAULT_ADMIN_DEADLINE: u64 = 7 * 24 * 60 * 60; // 7 days in seconds
 
 // --- Data Types ---
 
+/// Per-token instance-storage key for the locked amount.
+/// Using a typed enum avoids a shared Map<Address, i128> that must be fully
+/// deserialized and re-serialized on every read/write.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub enum TotalLocked {
+    Token(Address),
+}
+
 #[contracttype]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u32)]

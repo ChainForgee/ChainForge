@@ -1,6 +1,9 @@
 # Rust's output directory
 target
 
+# Proptest regression files (generated per test run, not for tracking)
+contracts/aid_escrow/test_snapshots/prop_*.json
+
 # Local settings
 .soroban
 .stellar

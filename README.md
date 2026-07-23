@@ -160,6 +160,12 @@ For component-specific contribution guidelines, refer to the README in each `app
 
 ---
 
+## Security
+
+To report a vulnerability, email [security@chainforge.app](mailto:security@chainforge.app) or use [GitHub's private vulnerability reporting](https://github.com/ChainForgee/ChainForge/security/advisories/new). Please do not open public issues for security reports. See [SECURITY.md](SECURITY.md) for details.
+
+---
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

@@ -17,6 +17,7 @@ ChainForge handles sensitive humanitarian aid data and recipient PII. We take se
 
 ### How to Report
 
+1. **Email**: Send a detailed report to [security@chainforge.app](mailto:security@chainforge.app).
 1. **Email**: Send a detailed report to the maintainers at security@chainforge.app.
 2. **GitHub Private Disclosure**: Use [GitHub's private vulnerability reporting](https://github.com/ChainForgee/ChainForge/security/advisories/new) feature.
 

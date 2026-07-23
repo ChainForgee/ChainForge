@@ -15,7 +15,7 @@ function PackageCard({ pkg }: { pkg: AidPackage }) {
     <div className="p-4 border rounded-lg shadow-sm bg-white dark:bg-gray-800 dark:border-gray-700">
       <div className="flex justify-between items-start">
         <div>
-          <h4 className="font-medium">{pkg.title}</h4>
+          <h3 className="font-medium">{pkg.title}</h3>
           <p className="text-sm text-gray-500">ID: {pkg.id}</p>
           <p className="text-sm text-gray-500">{pkg.region}</p>
         </div>
@@ -53,7 +53,7 @@ export const AidPackageList: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold">Available Aid Packages</h3>
+      <h2 className="text-lg font-semibold">Available Aid Packages</h2>
       <div className="grid gap-4 md:grid-cols-2">
         {packages.map(pkg => (
           <PackageCard key={pkg.id} pkg={pkg} />

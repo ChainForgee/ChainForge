@@ -23,10 +23,12 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
+    "test:cov": "jest --config ./test/jest-coverage.js --coverage",
+    "coverage:baseline": "node ./test/generate-coverage-baseline.js",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:e2e:ci": "prisma migrate deploy && jest --config ./test/jest-e2e.json --runInBand",
+    "decimal:migrate": "ts-node --transpile-only scripts/decimal-migrate.ts",
     "spec:export": "ts-node --transpile-only -r tsconfig-paths/register scripts/export-spec.ts"
   },
   "dependencies": {
@@ -46,6 +48,7 @@
     "@sendgrid/mail": "^8.1.5",
     "@stellar/stellar-sdk": "^14.6.1",
     "@willsoto/nestjs-prometheus": "^6.0.2",
+    "argon2": "^0.45.1",
     "axios": "^1.13.6",
     "bull": "^4.16.5",
     "bullmq": "^5.79.0",
@@ -55,6 +58,7 @@
     "dotenv": "^17.2.3",
     "helmet": "^8.1.0",
     "ioredis": "^5.9.2",
+    "jose": "^4",
     "openai": "^6.33.0",
     "pino": "^10.3.0",
     "pino-http": "^11.0.0",
@@ -62,7 +66,8 @@
     "prom-client": "^15.1.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "twilio": "^6.0.2"
+    "twilio": "^6.0.2",
+    "validator": "^13.15.35"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -81,6 +86,7 @@
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
+    "fast-check": "^4.9.0",
     "globals": "^16.0.0",
     "ioredis-mock": "^8.13.1",
     "jest": "^30.4.2",
@@ -108,13 +114,33 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "src/**/*.(t|j)s",
+      "cache/**/*.(t|j)s",
+      "!src/**/*.spec.ts",
+      "!src/**/examples/**",
+      "!src/main.ts",
+      "!src/**/*.module.ts",
+      "!src/feature-modules.registry.ts",
+      "!src/**/*.dto.ts",
+      "!src/**/dto/**",
+      "!src/**/types/**",
+      "!src/**/*.d.ts",
+      "!src/**/index.ts"
     ],
     "coverageDirectory": "../coverage",
+  "coverageThreshold": {
+    "global": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 50,
+      "statements": 80
+    }
+  },
     "testEnvironment": "node",
     "moduleNameMapper": {
       "^src/(.*)$": "<rootDir>/src/$1"
-    }
+    },
+    "modulePaths": ["<rootDir>"]
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

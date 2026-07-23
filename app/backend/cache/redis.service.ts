@@ -24,6 +24,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.client?.disconnect();
   }
 
+  getClient(): Redis {
+    return this.client;
+  }
+
   /**
    * Retrieve and deserialise a cached value.
    * Returns `null` on cache miss or if Redis is unavailable.

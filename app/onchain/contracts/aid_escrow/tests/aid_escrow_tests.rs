@@ -702,11 +702,20 @@ mod get_distributor_list {
         let mut found = [false; 3];
         for i in 0..3 {
             let addr = list.get(i).unwrap();
-            if addr == addr1 { found[0] = true; }
-            if addr == addr2 { found[1] = true; }
-            if addr == addr3 { found[2] = true; }
+            if addr == addr1 {
+                found[0] = true;
+            }
+            if addr == addr2 {
+                found[1] = true;
+            }
+            if addr == addr3 {
+                found[2] = true;
+            }
         }
-        assert!(found.iter().all(|&f| f), "all addresses must be present");
+        assert!(
+            found.iter().all(|&f| f),
+            "all addresses must be present"
+        );
     }
 
     #[test]
@@ -734,7 +743,11 @@ mod get_distributor_list {
         t.client.add_distributor(&addr); // duplicate add
 
         let list = t.client.get_distributor_list();
-        assert_eq!(list.len(), 1, "duplicate add must not create duplicate entry");
+        assert_eq!(
+            list.len(),
+            1,
+            "duplicate add must not create duplicate entry"
+        );
         assert_eq!(list.get(0).unwrap(), addr);
     }
 }

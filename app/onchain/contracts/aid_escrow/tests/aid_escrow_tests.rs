@@ -712,10 +712,7 @@ mod get_distributor_list {
                 found[2] = true;
             }
         }
-        assert!(
-            found.iter().all(|&f| f),
-            "all addresses must be present"
-        );
+        assert!(found.iter().all(|&f| f), "all addresses must be present");
     }
 
     #[test]

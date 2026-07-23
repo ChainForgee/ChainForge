@@ -420,7 +420,22 @@ impl AidEscrow {
             .get(&KEY_DISTRIBUTORS)
             .unwrap_or(Map::new(&env));
         let mut keys = distributors.keys();
-        keys.sort();
+        // Manual sort — soroban_sdk::Vec does not provide a sort() method.
+        // Bubble sort is acceptable because distributor lists are expected to
+        // be small (typically < 50 entries).
+        let len = keys.len();
+        if len > 1 {
+            for i in 0..(len - 1) {
+                for j in 0..(len - i - 1) {
+                    let a = keys.get(j).unwrap();
+                    let b = keys.get(j + 1).unwrap();
+                    if a > b {
+                        keys.set(j, b);
+                        keys.set(j + 1, a);
+                    }
+                }
+            }
+        }
         keys
     }
 

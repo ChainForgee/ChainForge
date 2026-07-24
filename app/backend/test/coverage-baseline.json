@@ -14,7 +14,7 @@
   ["src/auth/roles.decorator.ts",100,100,100,100],
   ["src/auth/roles.guard.ts",100,-1,100,100],
   ["src/campaigns/campaigns.controller.ts",-29,-16,-8,-29],
-  ["src/campaigns/campaigns.service.ts",-30,-41,-6,-36],
+  ["src/campaigns/campaigns.service.ts",-37,-43,-6,-31],
   ["src/claims/cancel-and-reissue.service.ts",-76,-53,-10,-78],
   ["src/claims/claim-export.controller.ts",-8,-2,-1,-8],
   ["src/claims/claim-lifecycle.controller.ts",-13,-12,-12,-13],

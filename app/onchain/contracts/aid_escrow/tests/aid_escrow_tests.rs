@@ -244,6 +244,73 @@ mod token_interactions {
         assert_eq!(result, Err(Ok(Error::InvalidToken)));
     }
 
+    /// Issue #233 — gating `set_config.allowed_tokens` at `MAX_ALLOWED_TOKENS`
+    /// (32) prevents admins from bloating wasm instance storage with
+    /// thousands of distinct addresses.  An oversized vec must be rejected
+    /// with `Error::TooManyAllowedTokens` before any per-token validation
+    /// runs (we use dummy addresses to prove the cap is enforced upfront).
+    #[test]
+    fn set_config_rejects_too_many_allowed_tokens() {
+        // Reference the canonical constant from the crate so any future
+        // change to the cap is picked up here automatically rather than
+        // silently drifting out of spec.
+        const MAX: u32 = aid_escrow::MAX_ALLOWED_TOKENS;
+
+        let t = TestSetup::new();
+        let mut allowed_tokens: Vec<Address> = Vec::new(&t.env);
+        for _ in 0..(MAX + 1) {
+            // Dummy addresses — the cap check runs BEFORE validation, so any
+            // address (even a non-token contract) triggers TooManyAllowedTokens.
+            // MAX + 1 entries matches the acceptance criterion's "vec[0..=MAX=33]".
+            allowed_tokens.push_back(Address::generate(&t.env));
+        }
+
+        assert_eq!(allowed_tokens.len(), MAX + 1);
+
+        let result = t.client.try_set_config(&Config {
+            min_amount: 1,
+            max_expires_in: 0,
+            allowed_tokens,
+        });
+
+        assert_eq!(result, Err(Ok(Error::TooManyAllowedTokens)));
+    }
+
+    /// Issue #233 — the boundary case `allowed_tokens.len() == MAX_ALLOWED_TOKENS`
+    /// must NOT be rejected by the cap check (the cap is exclusive: `len > MAX`
+    /// rejects).  The allowlist contents are dummy `{AidEscrow, ()}` contract
+    /// instances which are valid `Address` values but NOT Stellar token
+    /// contracts, so per-token validation will fail with `InvalidToken` —
+    /// but only AFTER the cap check has passed.  We assert `InvalidToken`,
+    /// not `TooManyAllowedTokens`, to prove the cap check is exclusive.
+    ///
+    /// (Renamed from `set_config_accepts_max_allowed_tokens_size` because the
+    /// test does NOT actually accept — it proves the cap is exclusive by
+    /// showing the per-token validator runs at the boundary.)
+    #[test]
+    fn set_config_passes_cap_check_at_max_boundary() {
+        const MAX: u32 = aid_escrow::MAX_ALLOWED_TOKENS;
+
+        let t = TestSetup::new();
+        let mut allowed_tokens: Vec<Address> = Vec::new(&t.env);
+        for _ in 0..MAX {
+            allowed_tokens.push_back(t.env.register(AidEscrow, ()));
+        }
+
+        assert_eq!(allowed_tokens.len(), MAX);
+
+        let result = t.client.try_set_config(&Config {
+            min_amount: 1,
+            max_expires_in: 0,
+            allowed_tokens,
+        });
+
+        // Cap check passed → per-token validation rejects the dummies.
+        // If this ever flips to `Err(Ok(Error::TooManyAllowedTokens))`
+        // the cap is no longer exclusive — investigate before relaxing.
+        assert_eq!(result, Err(Ok(Error::InvalidToken)));
+    }
+
     #[test]
     fn fund_maps_reverted_token_transfer_to_clear_contract_error() {
         let t = TestSetup::new();

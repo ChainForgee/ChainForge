@@ -44,6 +44,17 @@ const KEY_PENDING_ADMIN: Symbol = symbol_short!("pendadm");
 const KEY_ADMIN_DEADLINE: Symbol = symbol_short!("admdln");
 const DEFAULT_ADMIN_DEADLINE: u64 = 7 * 24 * 60 * 60; // 7 days in seconds
 
+// Cap on the number of distinct token addresses that can be added to the
+// `allowed_tokens` allowlist.  Issue #233 — `set_config` previously accepted
+// an unbounded `Vec<Address>`, allowing a malicious admin (or a buggy one)
+// to permanently bloat the wasm instance storage by repeatedly pushing
+// distinct addresses.  32 is plenty for humanitarian payouts and well below
+// the Soroban host cost ceiling for a single contract instance.
+///
+/// Public so tests and downstream consumers can reference the single
+/// source of truth without hard-coding `32`.
+pub const MAX_ALLOWED_TOKENS: u32 = 32;
+
 // --- Data Types ---
 
 #[contracttype]
@@ -114,6 +125,9 @@ pub enum Error {
     ProofTooLarge = 20,
     NoPendingAdmin = 21,
     AdminRotationExpired = 22,
+    // Issue #233 — `set_config` was called with more than
+    // `MAX_ALLOWED_TOKENS` addresses in `allowed_tokens`.
+    TooManyAllowedTokens = 23,
 }
 
 // --- Contract Events (indexer-friendly; stable topics & payloads) ---
@@ -415,6 +429,8 @@ impl AidEscrow {
     ///
     /// # Errors
     /// Returns `Error::InvalidAmount` if `config.min_amount` is zero or negative.
+    /// Returns `Error::TooManyAllowedTokens` if `config.allowed_tokens.len()` exceeds
+    /// `MAX_ALLOWED_TOKENS` (Issue #233).
     /// Returns `Error::NotAuthorized` if caller is not the admin.
     pub fn set_config(env: Env, config: Config) -> Result<(), Error> {
         let admin = Self::get_admin(env.clone())?;
@@ -422,6 +438,14 @@ impl AidEscrow {
 
         if config.min_amount <= 0 {
             return Err(Error::InvalidAmount);
+        }
+
+        // Issue #233 — reject oversized allowlists before doing any per-token
+        // contract invocations.  Doing the cap check first means a malicious
+        // admin cannot burn host resources by sending thousands of addresses
+        // each of which we would otherwise have to cross-contract call.
+        if config.allowed_tokens.len() > MAX_ALLOWED_TOKENS {
+            return Err(Error::TooManyAllowedTokens);
         }
 
         for i in 0..config.allowed_tokens.len() {

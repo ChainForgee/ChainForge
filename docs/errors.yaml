@@ -1,0 +1,92 @@
+# ---------------------------------------------------------------------------
+# docs/errors.yaml
+# Issue #249 — Shared error-code taxonomy
+#
+# Single source of truth for every error code either the backend (NestJS)
+# or the AI service (FastAPI) may emit.  The two services hand-roll their
+# own typed bindings from this file:
+#
+#   * Backend:  src/common/errors/codes.ts        (TypeScript enum)
+#   * AI svc:   app/ai-service/schemas/codes.py  (Python enum + module)
+#
+# Both bindings MUST enumerate the same set of codes.  Parity is enforced
+# by equality tests in each repo:
+#   * backend/src/common/errors/codes.spec.ts
+#   * app/ai-service/tests/test_codes.py
+#
+# Schema (validated by the parity tests):
+#   code         : stable string identifier (same in both languages)
+#   httpStatus   : HTTP status emitted on the wire
+#   description  : human-readable explanation used in docs and SDK tooltips
+#   category     : one of http | validation | ai | database | server | client
+# ---------------------------------------------------------------------------
+version: 1
+
+codes:
+  # ---- HTTP status codes (mirrored by the Ai-service `HTTP_{n}` family) --
+  - code: HTTP_400
+    httpStatus: 400
+    description: "Bad request — the request was malformed or contained invalid parameters."
+    category: http
+  - code: HTTP_401
+    httpStatus: 401
+    description: "Unauthorized — authentication is required to access this resource."
+    category: http
+  - code: HTTP_403
+    httpStatus: 403
+    description: "Forbidden — the caller is authenticated but lacks permission."
+    category: http
+  - code: HTTP_404
+    httpStatus: 404
+    description: "Not found — the requested resource does not exist."
+    category: http
+  - code: HTTP_409
+    httpStatus: 409
+    description: "Conflict — the request conflicts with the current resource state."
+    category: http
+  - code: HTTP_413
+    httpStatus: 413
+    description: "Payload too large — the request body exceeds the configured limit."
+    category: http
+  - code: HTTP_422
+    httpStatus: 422
+    description: "Unprocessable entity — request payload failed schema validation."
+    category: http
+  - code: HTTP_500
+    httpStatus: 500
+    description: "Internal server error — an unexpected exception escaped the handler."
+    category: http
+  - code: HTTP_502
+    httpStatus: 502
+    description: "Bad gateway — an upstream/downstream dependency failed."
+    category: http
+  - code: HTTP_503
+    httpStatus: 503
+    description: "Service unavailable — temporary degradation; retry with backoff."
+    category: http
+
+  # ---- Domain-specific codes not tied to a generic HTTP status ----------
+  - code: VALIDATION_ERROR
+    httpStatus: 422
+    description: "Validation failed — request payload does not match the expected schema."
+    category: validation
+  - code: AI_SERVICE_ERROR
+    httpStatus: 502
+    description: "AI service error — the upstream LLM/OCR provider failed to respond."
+    category: ai
+  - code: AI_TIMEOUT
+    httpStatus: 502
+    description: "AI service timeout — the upstream LLM exceeded its time budget."
+    category: ai
+  - code: PAYLOAD_TOO_LARGE
+    httpStatus: 413
+    description: "Payload too large — the request body exceeded the configured size limit."
+    category: client
+  - code: CODE_BODY_LENGTH_MISMATCH
+    httpStatus: 400
+    description: "Body length mismatch — streamed bytes exceeded the declared Content-Length."
+    category: client
+  - code: INTERNAL_SERVER_ERROR
+    httpStatus: 500
+    description: "Internal server error — generic catch-all for unhandled exceptions."
+    category: server

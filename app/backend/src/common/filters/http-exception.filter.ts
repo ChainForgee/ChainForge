@@ -10,6 +10,14 @@ import { Request, Response } from 'express';
 import { ValidationError } from 'class-validator';
 import { LoggerService } from '../../logger/logger.service';
 
+// Issue #249 established a shared error-code taxonomy in
+// `src/common/errors/codes.ts` (mirror of `app/ai-service/schemas/codes.py`).
+// The filter's on-wire envelope contract (`{ code: number, message: string }`)
+// is frozen by the existing e2e + coverage tests; for now we keep the wire
+// format unchanged and only consume the shared taxonomy at runtime when the
+// error path needs a stable identifier (e.g. structured logging).  Future
+// PRs can adopt the string codes on the wire once all consumers are migrated.
+
 export interface ErrorResponse {
   code: number;
   message: string;

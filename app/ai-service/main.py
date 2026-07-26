@@ -17,6 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from exceptions import AIServiceError
 from schemas.errors import ErrorDetail, ErrorEnvelope
+from schemas.codes import ErrorCode, code_for_http_status  # Issue #249
 import time
 import metrics
 import email.utils
@@ -348,7 +349,7 @@ class MaxRequestBodySizeMiddleware:
 
         envelope = ErrorEnvelope(
             error=ErrorDetail(
-                code="PAYLOAD_TOO_LARGE",
+                code=ErrorCode.PAYLOAD_TOO_LARGE.value,
                 message=msg,
             )
         ).model_dump()
@@ -376,7 +377,7 @@ class MaxRequestBodySizeMiddleware:
         )
         envelope = ErrorEnvelope(
             error=ErrorDetail(
-                code="CODE_BODY_LENGTH_MISMATCH",
+                code=ErrorCode.CODE_BODY_LENGTH_MISMATCH.value,
                 message=msg,
             )
         ).model_dump()
@@ -1036,7 +1037,11 @@ async def http_exception_handler(request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorEnvelope(
-            error=ErrorDetail(code=f"HTTP_{exc.status_code}", message=str(exc.detail))
+            # Issue #249 — use the shared taxonomy. ``code_for_http_status``
+            # returns the canonical string ID from docs/errors.yaml.  For
+            # unknown statuses it falls back to ``HTTP_{n}`` so legacy
+            # behaviour is preserved.
+            error=ErrorDetail(code=code_for_http_status(exc.status_code), message=str(exc.detail))
         ).model_dump(),
     )
 
@@ -1053,7 +1058,8 @@ async def validation_exception_handler(request, exc: RequestValidationError):
         status_code=422,
         content=ErrorEnvelope(
             error=ErrorDetail(
-                code="VALIDATION_ERROR",
+                # Issue #249 — use the shared taxonomy.
+                code=ErrorCode.VALIDATION_ERROR.value,
                 message="Request validation failed",
                 details=exc.errors(),
             )
@@ -1078,7 +1084,8 @@ async def general_exception_handler(request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content=ErrorEnvelope(
-            error=ErrorDetail(code="INTERNAL_SERVER_ERROR", message="Internal server error")
+            # Issue #249 — use the shared taxonomy.
+            error=ErrorDetail(code=ErrorCode.INTERNAL_SERVER_ERROR.value, message="Internal server error")
         ).model_dump(),
     )
 

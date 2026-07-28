@@ -456,6 +456,37 @@ impl AidEscrow {
         Ok(())
     }
 
+    /// Returns the list of currently registered distributor addresses.
+    ///
+    /// Returns an empty `Vec` if no distributors have been added.
+    /// The result is sorted for deterministic ordering, making it suitable
+    /// for off-chain indexers and audit dashboards.
+    pub fn get_distributor_list(env: Env) -> Vec<Address> {
+        let distributors: Map<Address, bool> = env
+            .storage()
+            .instance()
+            .get(&KEY_DISTRIBUTORS)
+            .unwrap_or(Map::new(&env));
+        let mut keys = distributors.keys();
+        // Manual sort — soroban_sdk::Vec does not provide a sort() method.
+        // Bubble sort is acceptable because distributor lists are expected to
+        // be small (typically < 50 entries).
+        let len = keys.len();
+        if len > 1 {
+            for i in 0..(len - 1) {
+                for j in 0..(len - i - 1) {
+                    let a = keys.get(j).unwrap();
+                    let b = keys.get(j + 1).unwrap();
+                    if a > b {
+                        keys.set(j, b);
+                        keys.set(j + 1, a);
+                    }
+                }
+            }
+        }
+        keys
+    }
+
     /// Admin-only. Updates the global contract configuration.
     ///
     /// # Arguments

@@ -56,6 +56,7 @@ impl TestSetup {
             min_amount: 1,
             max_expires_in: 0,
             allowed_tokens: Vec::new(&env),
+            min_decimals: 0,
         });
 
         Self {
@@ -254,6 +255,7 @@ fn profile_single_claim() {
         min_amount: 1,
         max_expires_in: 0,
         allowed_tokens: Vec::new(&env),
+        min_decimals: 0,
     });
 
     token_sac.mint(&client.address, &ONE_TOKEN);
@@ -352,6 +354,7 @@ fn profile_claim_with_proof() {
         min_amount: 1,
         max_expires_in: 0,
         allowed_tokens: Vec::new(&env),
+        min_decimals: 0,
     });
 
     token_sac.mint(&client.address, &ONE_TOKEN);

@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ApiKeysService } from './api-keys.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppRole } from '../auth/app-role.enum';
+import { verifyApiKeyHash } from './api-key-hash.util';
 
 describe('ApiKeysService', () => {
   let service: ApiKeysService;
@@ -55,6 +56,11 @@ describe('ApiKeysService', () => {
 
     expect(result.id).toBe('k1');
     expect(result.apiKey).toMatch(/^s2s_/);
+    const createCall = mockPrisma.apiKey.create.mock.calls[0][0];
+    expect(createCall.data.keyHash).toMatch(/^\$argon2id\$/);
+    await expect(
+      verifyApiKeyHash(createCall.data.keyHash, result.apiKey),
+    ).resolves.toBe(true);
   });
 
   it('requires ngoId for NGO role', async () => {
@@ -177,6 +183,11 @@ describe('ApiKeysService', () => {
 
       expect(result.replacement.id).toBe('new');
       expect(result.apiKey).toMatch(/^s2s_/);
+      const createCall = tx.apiKey.create.mock.calls[0][0];
+      expect(createCall.data.keyHash).toMatch(/^\$argon2id\$/);
+      await expect(
+        verifyApiKeyHash(createCall.data.keyHash, result.apiKey),
+      ).resolves.toBe(true);
       expect(tx.apiKey.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'old' },

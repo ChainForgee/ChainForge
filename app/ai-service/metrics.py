@@ -16,6 +16,7 @@ REQUEST_LATENCY = Histogram('api_request_latency_seconds', 'API request latency'
 MODEL_LOAD_TIME = Histogram('model_load_time_seconds', 'Model load time in seconds', ['model_name'])
 INFERENCE_LATENCY = Histogram('inference_latency_seconds', 'Inference latency in seconds', ['task_type'])
 PIPELINE_STEP_LATENCY = Histogram('pipeline_step_latency_seconds', 'Pipeline step latency in seconds', ['step_name'])
+PII_MODEL_VERSION = Gauge('pii_model_version', 'PII scrubber model version', ['version'])
 
 # Circuit breaker metrics
 # State is encoded numerically so it can be plotted over time:

@@ -35,6 +35,7 @@ expires and is refunded.
 | `migrate(env, new_version)` | Admin | Performs version-specific migrations. |
 | `add_distributor(env, addr)` | Admin | Grants distributor privileges to an address. |
 | `remove_distributor(env, addr)` | Admin | Revokes distributor privileges. |
+| `get_distributor_list(env)` | — | Returns a sorted list of registered distributor addresses. |
 | `set_config(env, config)` | Admin | Updates contract configuration (min amount, max expiry, allowed tokens). |
 | `get_config(env)` | — | Returns the current config. |
 | `pause(env)` | Admin | Pauses the contract (blocks package creation and claims). |

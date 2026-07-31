@@ -140,6 +140,7 @@ fn test_set_get_config() {
         min_amount: UNIT,
         max_expires_in: 3600,
         allowed_tokens: tokens,
+        min_decimals: 0,
     };
     client.set_config(&config);
     assert_eq!(client.get_config(), config);
@@ -165,6 +166,7 @@ fn test_config_constraints_on_create_package() {
         min_amount: 5 * UNIT,
         max_expires_in: 1000,
         allowed_tokens: allowed,
+        min_decimals: 0,
     });
 
     let now = env.ledger().timestamp();
@@ -431,6 +433,7 @@ fn test_config_constraints_on_extend_expiration() {
         min_amount: UNIT,
         max_expires_in: 500,
         allowed_tokens: Vec::new(&env),
+        min_decimals: 0,
     });
 
     let now = env.ledger().timestamp();

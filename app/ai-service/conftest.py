@@ -78,3 +78,10 @@ if isinstance(_cv2, MagicMock):
     _cv2.cvtColor = MagicMock(return_value=_dummy_thresh)
     _cv2.COLOR_GRAY2BGR = 0
     _cv2.COLOR_BGR2GRAY = 1
+
+def pytest_terminal_summary(terminalreporter):
+    try:
+        from services.pii_scrubber import PII_MODEL_VERSION
+        terminalreporter.write_sep("=", f"PII Scrubber Model Version: {PII_MODEL_VERSION}")
+    except ImportError:
+        pass

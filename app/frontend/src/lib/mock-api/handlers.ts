@@ -368,6 +368,28 @@ const recipientsImportConfirmHandler: MockHandler = async (_url, options) => {
   });
 };
 
+const claimReceiptHandler: MockHandler = async (url) => {
+  const match = url.match(/\/api\/v1\/claims\/([^/]+)\/receipt/);
+  const claimId = match?.[1] ?? 'unknown-claim';
+
+  if (claimId === 'not-found') {
+    return new Response(null, { status: 404 });
+  }
+
+  return new Response(
+    JSON.stringify({
+      claimId,
+      packageId: 'AID-001',
+      status: 'disbursed',
+      amount: 150.5,
+      tokenAddress: 'GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN',
+      timestamp: new Date().toISOString(),
+      recipientRef: 'recipient-ref-mock',
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  );
+};
+
 export const handlers: Record<string, MockHandler> = {
   '/health': healthHandler,
   '/aid-packages': aidPackagesHandler,
@@ -387,4 +409,5 @@ export const handlers: Record<string, MockHandler> = {
     }
     return new Response(JSON.stringify({ success: false, message: 'Method not implemented in mock' }), { status: 405, headers: { 'Content-Type': 'application/json' } });
   },
+  '/api/v1/claims/:id/receipt': claimReceiptHandler,
 };

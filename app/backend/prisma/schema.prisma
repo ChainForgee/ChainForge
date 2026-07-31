@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -34,12 +34,13 @@ model AidPackage {
   campaignId    String?
   campaign      Campaign? @relation(fields: [campaignId], references: [id])
 
-  totalAmount     Float @default(0)
-  claimedAmount   Float @default(0)
-  remainingAmount Float @default(0)
+  totalAmount     Decimal @db.Decimal(38, 18) @default(0)
+  claimedAmount   Decimal @db.Decimal(38, 18) @default(0)
+  remainingAmount Decimal @db.Decimal(38, 18) @default(0)
 
   @@index([campaignId])
-    @@index([campaignId, status])
+  @@index([campaignId, status])
+  @@index([campaignId, status, createdAt])
 }
 
 /// Tracks every balance event (lock / unlock / disburse) for a campaign.
@@ -56,7 +57,7 @@ model BalanceLedger {
   eventType  String
 
   /// Positive for lock/disburse, negative for unlock
-  amount     Float
+  amount     Decimal @db.Decimal(38, 18)
 
   note       String?
   createdAt  DateTime @default(now())
@@ -223,7 +224,7 @@ model Claim {
   campaignId   String
   campaign     Campaign    @relation(fields: [campaignId], references: [id])
 
-  amount       Float
+  amount       Decimal @db.Decimal(38, 18)
 
   recipientRef String
   evidenceRef  String?
@@ -243,7 +244,7 @@ model Claim {
 
   @@index([status])
   @@index([campaignId])
-   @@index([campaignId, status])
+  @@index([campaignId, status])
   @@index([createdAt])
   @@index([deletedAt])
   @@index([reissuedFromId])
@@ -347,7 +348,7 @@ model Campaign {
 
   status      CampaignStatus @default(draft)
 
-  budget      Float
+  budget      Decimal @db.Decimal(38, 18)
 
   metadata    Json?
 
@@ -369,11 +370,12 @@ model Campaign {
   @@index([archivedAt])
   @@index([ngoId])
   @@index([orgId])
+  @@index([orgId, status, createdAt])
   @@index([deletedAt])
 }
 
 model Role {
-  id   Int    @id @default(autoincrement())
+  id   String @id @default(cuid())
   name String @unique
 }
 

@@ -48,29 +48,30 @@ jobs:
         run: |
           set -euo pipefail
           export PYTHONPATH=$PYTHONPATH:.
-          # We require:
-          # - >= 90% of samples pass the exact-field matching gate
-          # - >= 60% reported accuracy
           python regression_harness/cli.py \
             --dataset regression_harness/dataset/degraded/ground_truth.json \
             --output ocr_degraded_report.json \
             --threshold 0.8
-
-          python - <<'PY'
+          python - <<'PYTHON_SCRIPT'
           import json
-          with open('ocr_degraded_report.json','r') as f:
-            report = json.load(f)
+          with open('ocr_degraded_report.json', 'r') as f:
+              report = json.load(f)
           summary = report.get('summary', {})
           total = summary.get('total', 0)
           passed = summary.get('passed', 0)
           accuracy = float(summary.get('accuracy', 0.0))
-          pass_ratio = (passed/total) if total else 0.0
-          print('Degraded regression summary:', {'total': total, 'passed': passed, 'pass_ratio': pass_ratio, 'accuracy': accuracy})
+          pass_ratio = (passed / total) if total else 0.0
+          print('Degraded regression summary:', {
+              'total': total,
+              'passed': passed,
+              'pass_ratio': pass_ratio,
+              'accuracy': accuracy
+          })
           if pass_ratio < 0.9:
-            raise SystemExit(f'FAILED: pass_ratio {pass_ratio:.3f} < 0.9')
-          if accuracy < 0.6:
-            raise SystemExit(f'FAILED: accuracy {accuracy:.3f}% < 0.6%')
-          PY
+              raise SystemExit('FAILED: pass_ratio {:.3f} < 0.9'.format(pass_ratio))
+          if accuracy < 60.0:
+              raise SystemExit('FAILED: accuracy {:.3f}% < 60.0%'.format(accuracy))
+          PYTHON_SCRIPT
 
       - name: Upload Regression Report
         if: always()
@@ -79,4 +80,3 @@ jobs:
           name: ocr-regression-degraded-report
           path: app/ai-service/ocr_degraded_report.json
           retention-days: 14
-

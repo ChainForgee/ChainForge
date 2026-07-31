@@ -83,6 +83,43 @@ class OCRService:
         self.field_detector = FieldDetector()
         self.test_provider = TestProvider()
 
+    def _try_orientation(self, image: Image.Image, angle: int):
+        """Run OCR on an image rotated by `angle` degrees, return (num_fields, total_conf, OCRResult)."""
+        rotated = image.rotate(angle, expand=True) if angle else image
+        preprocessed = self.preprocessor.preprocess(
+            rotated, threshold_method="otsu", denoise=True
+        )
+
+        if preprocessed.size[0] == 0 or preprocessed.size[1] == 0:
+            return None
+
+        tesseract_data = self._run_tesseract(preprocessed)
+
+        raw_text = tesseract_data.get("text", "")
+        if isinstance(raw_text, list):
+            raw_text = " ".join(str(t) for t in raw_text if t)
+        raw_text = str(raw_text) if raw_text else ""
+
+        fields = self.field_detector.detect_fields(raw_text)
+
+        total_conf = 0.0
+        for field_name, field_match in fields.items():
+            field_chars = self._extract_field_chars(
+                tesseract_data, field_match.value
+            )
+            field_match.confidence = self.field_detector.aggregate_confidence(
+                field_chars
+            )
+            total_conf += field_match.confidence
+
+        ocr_result = OCRResult(
+            fields=fields,
+            raw_text=raw_text,
+            processing_time_ms=0,
+        )
+
+        return (len(fields), total_conf, ocr_result)
+
     def process_image(self, image: Image.Image) -> OCRResult:
         if settings.test_provider_mode:
             response = self.test_provider.get_response("ocr", {"image_size": str(image.size)})
@@ -104,42 +141,11 @@ class OCRService:
         best = None  # (score_fields, score_conf, OCRResult)
 
         for ang in candidates:
-            rotated = image.rotate(ang, expand=True) if ang else image
-            preprocessed = self.preprocessor.preprocess(
-                rotated, threshold_method="otsu", denoise=True
-            )
-
-            if preprocessed.size[0] == 0 or preprocessed.size[1] == 0:
+            result = self._try_orientation(image, ang)
+            if result is None:
                 continue
 
-            tesseract_data = self._run_tesseract(preprocessed)
-
-            raw_text = tesseract_data.get("text", "")
-            if isinstance(raw_text, list):
-                raw_text = " ".join(str(t) for t in raw_text if t)
-            raw_text = str(raw_text) if raw_text else ""
-
-            fields = self.field_detector.detect_fields(raw_text)
-
-            # Update per-field confidence (character-level aggregation)
-            total_conf = 0.0
-            for field_name, field_match in fields.items():
-                field_chars = self._extract_field_chars(
-                    tesseract_data, field_match.value
-                )
-                field_match.confidence = self.field_detector.aggregate_confidence(
-                    field_chars
-                )
-                total_conf += field_match.confidence
-
-            score_fields = len(fields)
-            score_conf = total_conf
-
-            ocr_result = OCRResult(
-                fields=fields,
-                raw_text=raw_text,
-                processing_time_ms=0,
-            )
+            score_fields, score_conf, ocr_result = result
 
             if best is None:
                 best = (score_fields, score_conf, ocr_result)

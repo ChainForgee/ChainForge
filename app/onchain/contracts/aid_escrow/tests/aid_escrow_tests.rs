@@ -59,6 +59,7 @@ impl TestSetup {
             min_amount: 1, // Minimum 1 stroop
             max_expires_in: 0,
             allowed_tokens: Vec::new(&env),
+            min_decimals: 0,
         });
 
         Self {
@@ -152,6 +153,7 @@ mod create_package {
             min_amount: TWO_TOKENS, // Min 2.0 tokens
             max_expires_in: 0,
             allowed_tokens: Vec::new(&t.env),
+            min_decimals: 0,
         });
         let result = t.client.try_create_package(
             &t.admin,
@@ -239,6 +241,7 @@ mod token_interactions {
             min_amount: 1,
             max_expires_in: 0,
             allowed_tokens,
+            min_decimals: 0,
         });
 
         assert_eq!(result, Err(Ok(Error::InvalidToken)));
@@ -456,6 +459,91 @@ mod claim {
         let with_proof = t.client.try_claim_with_proof(&id, &claimant, &proof);
         assert_eq!(with_proof, Err(Ok(Error::InvalidProof)));
     }
+
+    #[test]
+    fn merkle_allowlist_claim_fails_after_root_expiry() {
+        let t = TestSetup::new();
+        let claimant = Address::generate(&t.env);
+        t.fund_contract(ONE_TOKEN);
+
+        // Single-leaf tree: root == leaf and proof is empty.
+        let root_hex = claimant_leaf_hex(&t.env, &claimant);
+
+        // Allowlist root expires 1000s in the future, while the package itself
+        // stays claimable for an hour.
+        let root_expires_at = t.now() + 1000;
+
+        let mut metadata = Map::new(&t.env);
+        metadata.set(
+            Symbol::new(&t.env, "merkle_root"),
+            soroban_sdk::String::from_str(&t.env, &root_hex),
+        );
+        metadata.set(
+            Symbol::new(&t.env, "merkle_root_expires_at"),
+            soroban_sdk::String::from_str(&t.env, &root_expires_at.to_string()),
+        );
+
+        let id = t.client.create_package(
+            &t.admin,
+            &779u64,
+            &Address::generate(&t.env),
+            &ONE_TOKEN,
+            &t.token,
+            &(t.now() + 3600),
+            &metadata,
+        );
+
+        let proof: Vec<soroban_sdk::String> = Vec::new(&t.env);
+
+        // Advance the ledger to the expiry boundary (merkle_root_expires_at == now).
+        t.advance_time(1000);
+        let expired = t.client.try_claim_with_proof(&id, &claimant, &proof);
+        assert_eq!(expired, Err(Ok(Error::AllowlistExpired)));
+
+        // Advancing further keeps the allowlist expired.
+        t.advance_time(500);
+        let still_expired = t.client.try_claim_with_proof(&id, &claimant, &proof);
+        assert_eq!(still_expired, Err(Ok(Error::AllowlistExpired)));
+    }
+
+    #[test]
+    fn merkle_allowlist_claim_succeeds_before_root_expiry() {
+        let t = TestSetup::new();
+        let claimant = Address::generate(&t.env);
+        t.fund_contract(ONE_TOKEN);
+
+        let root_hex = claimant_leaf_hex(&t.env, &claimant);
+        let root_expires_at = t.now() + 1000;
+
+        let mut metadata = Map::new(&t.env);
+        metadata.set(
+            Symbol::new(&t.env, "merkle_root"),
+            soroban_sdk::String::from_str(&t.env, &root_hex),
+        );
+        metadata.set(
+            Symbol::new(&t.env, "merkle_root_expires_at"),
+            soroban_sdk::String::from_str(&t.env, &root_expires_at.to_string()),
+        );
+
+        let id = t.client.create_package(
+            &t.admin,
+            &780u64,
+            &Address::generate(&t.env),
+            &ONE_TOKEN,
+            &t.token,
+            &(t.now() + 3600),
+            &metadata,
+        );
+
+        // Just before expiry the allowlist is still active and the claim works.
+        t.advance_time(999);
+        let proof: Vec<soroban_sdk::String> = Vec::new(&t.env);
+        let with_proof = t.client.try_claim_with_proof(&id, &claimant, &proof);
+        assert!(with_proof.is_ok());
+
+        let token_client = TokenClient::new(&t.env, &t.token);
+        assert_eq!(token_client.balance(&claimant), ONE_TOKEN);
+    }
 }
 
 // ===========================================================================
@@ -557,4 +645,133 @@ mod token_decimal_normalization {
         );
         assert!(result.is_ok());
     }
+}
+
+// ===========================================================================
+// get_distributor_list — Tests
+// ===========================================================================
+
+mod get_distributor_list {
+    use super::*;
+
+    #[test]
+    fn returns_empty_vec_after_init() {
+        let t = TestSetup::new();
+        let list = t.client.get_distributor_list();
+        assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    fn returns_single_distributor_after_add() {
+        let t = TestSetup::new();
+        let addr = Address::generate(&t.env);
+        t.client.add_distributor(&addr);
+        let list = t.client.get_distributor_list();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list.get(0).unwrap(), addr);
+    }
+
+    #[test]
+    fn returns_empty_after_add_then_remove() {
+        let t = TestSetup::new();
+        let addr = Address::generate(&t.env);
+        t.client.add_distributor(&addr);
+        t.client.remove_distributor(&addr);
+        let list = t.client.get_distributor_list();
+        assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    fn returns_sorted_list_after_multiple_adds() {
+        let t = TestSetup::new();
+        let addr1 = Address::generate(&t.env);
+        let addr2 = Address::generate(&t.env);
+        let addr3 = Address::generate(&t.env);
+
+        // Add in non-sorted order
+        t.client.add_distributor(&addr3);
+        t.client.add_distributor(&addr1);
+        t.client.add_distributor(&addr2);
+
+        let list = t.client.get_distributor_list();
+        assert_eq!(list.len(), 3);
+
+        // Verify the list is sorted by checking each element's relative ordering.
+        // Since Address implements Ord via the host, we compare adjacent pairs.
+        assert!(list.get(0).unwrap() <= list.get(1).unwrap());
+        assert!(list.get(1).unwrap() <= list.get(2).unwrap());
+
+        // All three addresses must be present
+        let mut found = [false; 3];
+        for i in 0..3 {
+            let addr = list.get(i).unwrap();
+            if addr == addr1 {
+                found[0] = true;
+            }
+            if addr == addr2 {
+                found[1] = true;
+            }
+            if addr == addr3 {
+                found[2] = true;
+            }
+        }
+        assert!(found.iter().all(|&f| f), "all addresses must be present");
+    }
+
+    #[test]
+    fn reflects_removal_in_list() {
+        let t = TestSetup::new();
+        let addr1 = Address::generate(&t.env);
+        let addr2 = Address::generate(&t.env);
+
+        t.client.add_distributor(&addr1);
+        t.client.add_distributor(&addr2);
+        assert_eq!(t.client.get_distributor_list().len(), 2);
+
+        t.client.remove_distributor(&addr1);
+        let list = t.client.get_distributor_list();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list.get(0).unwrap(), addr2);
+    }
+
+    #[test]
+    fn duplicate_add_is_idempotent() {
+        let t = TestSetup::new();
+        let addr = Address::generate(&t.env);
+
+        t.client.add_distributor(&addr);
+        t.client.add_distributor(&addr); // duplicate add
+
+        let list = t.client.get_distributor_list();
+        assert_eq!(
+            list.len(),
+            1,
+            "duplicate add must not create duplicate entry"
+        );
+        assert_eq!(list.get(0).unwrap(), addr);
+    }
+}
+#[test]
+fn test_claim_with_proof_oversized_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // 1. Generate an oversized proof vector containing 33 elements (limit is 32)
+    let mut oversized_proof = Vec::new(&env);
+    for _ in 0..33 {
+        oversized_proof.push_back(soroban_sdk::String::from_str(&env, "a"));
+    }
+
+    // 2. Instantiate dummy variables for the invocation
+    let dummy_id = 1u64;
+    let dummy_claimant = Address::generate(&env);
+
+    // 3. Register the contract using the non-deprecated `.register` method
+    let contract_id = env.register(crate::AidEscrow, ());
+    let client = AidEscrowClient::new(&env, &contract_id);
+
+    // 4. Try the claim invocation and assert it rejects with our custom error
+    let result = client.try_claim_with_proof(&dummy_id, &dummy_claimant, &oversized_proof);
+
+    assert_eq!(result, Err(Ok(crate::Error::ProofTooLarge)));
 }

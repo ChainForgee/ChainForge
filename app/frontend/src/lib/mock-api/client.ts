@@ -38,6 +38,16 @@ export async function fetchClient(
       await new Promise((resolve) => setTimeout(resolve, 500));
       return handlers['/campaigns/:id'](urlString, init);
     }
+
+    // Support dynamic claim receipt endpoints like /api/v1/claims/:id/receipt
+    if (
+      /^\/api\/v1\/claims\/[^/]+\/receipt$/.test(pathWithoutQuery) &&
+      handlers['/api/v1/claims/:id/receipt']
+    ) {
+      console.log(`[Mock API] Intercepting dynamic claim receipt request to: ${urlString}`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      return handlers['/api/v1/claims/:id/receipt'](urlString, init);
+    }
   }
 
   // Fallback to real fetch

@@ -144,7 +144,11 @@ cd app/onchain && make test
 
 ## Contributing
 
-We welcome contributions that make humanitarian aid delivery more transparent and efficient. When submitting changes:
+We welcome contributions that make humanitarian aid delivery more transparent and efficient.
+
+Please read our [End-to-End Contributor Journey](docs/contributing/journey.md) for a complete walk-through of finding an issue, local setup, PR conventions, CI expectations, and the merge process.
+
+When submitting changes:
 
 1. Open an issue to discuss the proposed change before implementing
 2. Keep pull requests small and focused on a single concern
@@ -153,6 +157,12 @@ We welcome contributions that make humanitarian aid delivery more transparent an
 5. Follow the coding conventions and style guides documented in each service's README
 
 For component-specific contribution guidelines, refer to the README in each `app/` subdirectory.
+
+---
+
+## Security
+
+To report a vulnerability, email [security@chainforge.app](mailto:security@chainforge.app) or use [GitHub's private vulnerability reporting](https://github.com/ChainForgee/ChainForge/security/advisories/new). Please do not open public issues for security reports. See [SECURITY.md](SECURITY.md) for details.
 
 ---
 

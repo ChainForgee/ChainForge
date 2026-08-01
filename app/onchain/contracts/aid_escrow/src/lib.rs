@@ -38,7 +38,29 @@ const KEY_PAUSE_CREATE: Symbol = symbol_short!("p_create");
 const KEY_PAUSE_CLAIM: Symbol = symbol_short!("p_claim");
 const KEY_PAUSE_WITHDRAW: Symbol = symbol_short!("p_wdrw");
 const KEY_TOTAL_CLAIMED: Symbol = symbol_short!("claimed"); // Map<Address, i128>
+const KEY_TOTAL_COMMITTED: Symbol = symbol_short!("cmt"); // Map<Address, i128>
+const KEY_TOTAL_EXPIRED_CANCELLED: Symbol = symbol_short!("expcan"); // Map<Address, i128>
 const META_MERKLE_ROOT_KEY: &str = "merkle_root";
+const META_MERKLE_ROOT_EXPIRES_AT_KEY: &str = "merkle_root_expires_at";
+const KEY_PENDING_ADMIN: Symbol = symbol_short!("pendadm");
+const KEY_ADMIN_DEADLINE: Symbol = symbol_short!("admdln");
+const DEFAULT_ADMIN_DEADLINE: u64 = 7 * 24 * 60 * 60; // 7 days in seconds
+
+/// Maximum number of decimals supported by Stellar assets / SAC tokens.
+///
+/// The Stellar / SAC token standard caps `decimals()` at 38.  39+ is
+/// rejected because no on-chain token can declare more, and `10^39`
+/// already overflows `i128` (so even if it existed we could never
+/// represent a whole unit).  `validate_token` rejects anything above
+/// this with `Error::InvalidTokenDecimals`.  See issue #235.
+pub const MAX_TOKEN_DECIMALS: u32 = 38;
+
+/// Initial value of `Config.min_decimals` written by `init()` when no
+/// admin has called `set_config()` yet.  0 disables the floor check, so
+/// tokens with 0 decimals (e.g. NFTs, indivisible units) are accepted by
+/// default.  This is the *init-default* only — admins are free to raise
+/// it later via `set_config`.
+pub const INIT_MIN_TOKEN_DECIMALS: u32 = 0;
 
 // --- Data Types ---
 
@@ -73,6 +95,11 @@ pub struct Config {
     pub min_amount: i128,
     pub max_expires_in: u64,
     pub allowed_tokens: Vec<Address>,
+    /// Minimum decimals accepted by `validate_token` (admin-configurable).
+    /// Tokens with `decimals < min_decimals` are rejected with
+    /// `Error::InvalidTokenDecimals`. The upper bound is fixed by
+    /// [`MAX_TOKEN_DECIMALS`] and produces the same error.
+    pub min_decimals: u32,
 }
 
 #[contracttype]
@@ -105,6 +132,15 @@ pub enum Error {
     InvalidProof = 16,
     InvalidToken = 17,
     TokenTransferFailed = 18,
+    // Merkle allowlist root has expired (merkle_root_expires_at <= now)
+    AllowlistExpired = 19,
+    ProofTooLarge = 20,
+    NoPendingAdmin = 21,
+    AdminRotationExpired = 22,
+    /// Token decimals are out of the accepted `[min_decimals, 38]` range.
+    /// Distinguished from `InvalidToken` (meaning the token contract is
+    /// malformed / does not respond to `decimals()`).
+    InvalidTokenDecimals = 23,
 }
 
 // --- Contract Events (indexer-friendly; stable topics & payloads) ---
@@ -208,6 +244,12 @@ pub struct ActionUnpausedEvent {
     pub action: Symbol,
 }
 
+#[contractevent]
+pub struct AdminRotatedEvent {
+    pub old_admin: Address,
+    pub new_admin: Address,
+}
+
 #[contract]
 pub struct AidEscrow;
 
@@ -232,6 +274,7 @@ impl AidEscrow {
             min_amount: 1,
             max_expires_in: 0,
             allowed_tokens: Vec::new(&env),
+            min_decimals: INIT_MIN_TOKEN_DECIMALS,
         };
         env.storage().instance().set(&KEY_CONFIG, &config);
         Ok(())
@@ -254,6 +297,70 @@ impl AidEscrow {
         env.storage().instance().get(&KEY_VERSION).unwrap_or(0)
     }
 
+    /// Returns the pending admin address, if any.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&KEY_PENDING_ADMIN)
+    }
+
+    /// Admin-only. Initiates a two-step admin rotation by setting a pending admin.
+    /// The pending admin must call `accept_admin()` within the deadline to complete the rotation.
+    ///
+    /// # Arguments
+    /// * `new_admin` — The address of the proposed new admin.
+    ///
+    /// # Errors
+    /// Returns `Error::NotAuthorized` if caller is not the current admin.
+    pub fn rotate_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin = Self::get_admin(env.clone())?;
+        admin.require_auth();
+
+        let deadline = env.ledger().timestamp() + DEFAULT_ADMIN_DEADLINE;
+        env.storage().instance().set(&KEY_PENDING_ADMIN, &new_admin);
+        env.storage().instance().set(&KEY_ADMIN_DEADLINE, &deadline);
+        Ok(())
+    }
+
+    /// Pending-admin-only. Completes the admin rotation.
+    /// Must be called by the pending admin within the deadline (7 days by default).
+    /// Emits an `AdminRotatedEvent`.
+    ///
+    /// # Errors
+    /// Returns `Error::NoPendingAdmin` if no rotation is in progress.
+    /// Returns `Error::AdminRotationExpired` if the deadline has passed.
+    /// Returns `Error::NotAuthorized` if caller is not the pending admin.
+    pub fn accept_admin(env: Env) -> Result<(), Error> {
+        let pending_admin: Address = env
+            .storage()
+            .instance()
+            .get(&KEY_PENDING_ADMIN)
+            .ok_or(Error::NoPendingAdmin)?;
+
+        let deadline: u64 = env
+            .storage()
+            .instance()
+            .get(&KEY_ADMIN_DEADLINE)
+            .unwrap_or(0);
+
+        if env.ledger().timestamp() > deadline {
+            return Err(Error::AdminRotationExpired);
+        }
+
+        pending_admin.require_auth();
+
+        let old_admin = Self::get_admin(env.clone())?;
+        env.storage().instance().set(&KEY_ADMIN, &pending_admin);
+        env.storage().instance().remove(&KEY_PENDING_ADMIN);
+        env.storage().instance().remove(&KEY_ADMIN_DEADLINE);
+
+        AdminRotatedEvent {
+            old_admin,
+            new_admin: pending_admin,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
     /// Returns the semantic version of the contract package.
     pub fn contract_version(env: Env) -> String {
         String::from_str(&env, env!("CARGO_PKG_VERSION"))
@@ -266,6 +373,16 @@ impl AidEscrow {
     ///
     /// # Errors
     /// Returns `Error::NotAuthorized` if caller is not the admin.
+    ///
+    /// # Migration notes
+    /// - `1 -> 2`: the `Config` struct gained a `min_decimals: u32` field.
+    ///   Configurations persisted by v1 cannot be deserialised into the
+    ///   v2 layout, so this arm resets the stored config to a safe
+    ///   default (`min_amount=1`, `max_expires_in=0`, no allowed tokens,
+    ///   `min_decimals=0`).  Admins must call `set_config(...)` again
+    ///   after the upgrade to reinstate their policy.  Without `migrate`
+    ///   they would silently observe `get_config()` returning defaults
+    ///   while believing their v1 settings were still active.
     pub fn migrate(env: Env, new_version: u32) -> Result<(), Error> {
         let admin = Self::get_admin(env.clone())?;
         admin.require_auth();
@@ -275,7 +392,17 @@ impl AidEscrow {
         // Perform version-specific migrations
         match (current_version, new_version) {
             (1, 2) => {
-                // Future: Add migration logic for v1 -> v2
+                // v1 -> v2: the stored `Config` shape is no longer
+                // compatible (it lacks `min_decimals`). Reset to a
+                // permissive default; the admin will re-supply their
+                // policy via `set_config` after the upgrade.
+                let config = Config {
+                    min_amount: 1,
+                    max_expires_in: 0,
+                    allowed_tokens: Vec::new(&env),
+                    min_decimals: INIT_MIN_TOKEN_DECIMALS,
+                };
+                env.storage().instance().set(&KEY_CONFIG, &config);
             }
             _ => {
                 // No-op for now, but structured for future use
@@ -329,13 +456,51 @@ impl AidEscrow {
         Ok(())
     }
 
+    /// Returns the list of currently registered distributor addresses.
+    ///
+    /// Returns an empty `Vec` if no distributors have been added.
+    /// The result is sorted for deterministic ordering, making it suitable
+    /// for off-chain indexers and audit dashboards.
+    pub fn get_distributor_list(env: Env) -> Vec<Address> {
+        let distributors: Map<Address, bool> = env
+            .storage()
+            .instance()
+            .get(&KEY_DISTRIBUTORS)
+            .unwrap_or(Map::new(&env));
+        let mut keys = distributors.keys();
+        // Manual sort — soroban_sdk::Vec does not provide a sort() method.
+        // Bubble sort is acceptable because distributor lists are expected to
+        // be small (typically < 50 entries).
+        let len = keys.len();
+        if len > 1 {
+            for i in 0..(len - 1) {
+                for j in 0..(len - i - 1) {
+                    let a = keys.get(j).unwrap();
+                    let b = keys.get(j + 1).unwrap();
+                    if a > b {
+                        keys.set(j, b);
+                        keys.set(j + 1, a);
+                    }
+                }
+            }
+        }
+        keys
+    }
+
     /// Admin-only. Updates the global contract configuration.
     ///
     /// # Arguments
-    /// * `config` — New config values (`min_amount`, `max_expires_in`, `allowed_tokens`).
+    /// * `config` — New config values (`min_amount`, `max_expires_in`,
+    ///   `allowed_tokens`, `min_decimals`).
     ///
     /// # Errors
     /// Returns `Error::InvalidAmount` if `config.min_amount` is zero or negative.
+    /// Returns `Error::InvalidTokenDecimals` if `config.min_decimals` is
+    /// greater than `MAX_TOKEN_DECIMALS`.
+    /// Returns `Error::InvalidTokenDecimals` if any token in `allowed_tokens`
+    /// has decimals outside `[min_decimals, MAX_TOKEN_DECIMALS]`.
+    /// Returns `Error::InvalidToken` if a token contract does not respond
+    /// to `decimals()`.
     /// Returns `Error::NotAuthorized` if caller is not the admin.
     pub fn set_config(env: Env, config: Config) -> Result<(), Error> {
         let admin = Self::get_admin(env.clone())?;
@@ -345,9 +510,13 @@ impl AidEscrow {
             return Err(Error::InvalidAmount);
         }
 
+        if config.min_decimals > MAX_TOKEN_DECIMALS {
+            return Err(Error::InvalidTokenDecimals);
+        }
+
         for i in 0..config.allowed_tokens.len() {
             let token = config.allowed_tokens.get(i).ok_or(Error::InvalidToken)?;
-            Self::validate_token(&env, &token)?;
+            Self::validate_token(&env, &token, config.min_decimals)?;
         }
 
         env.storage().instance().set(&KEY_CONFIG, &config);
@@ -427,13 +596,14 @@ impl AidEscrow {
     }
 
     /// Returns the current contract configuration.
-    /// Falls back to defaults (`min_amount: 1`, `max_expires_in: 0`, empty token list)
-    /// if no config has been explicitly set.
+    /// Falls back to defaults (`min_amount: 1`, `max_expires_in: 0`, empty
+    /// token list, `min_decimals: 0`) if no config has been explicitly set.
     pub fn get_config(env: Env) -> Config {
         env.storage().instance().get(&KEY_CONFIG).unwrap_or(Config {
             min_amount: 1,
             max_expires_in: 0,
             allowed_tokens: Vec::new(&env),
+            min_decimals: INIT_MIN_TOKEN_DECIMALS,
         })
     }
 
@@ -448,8 +618,12 @@ impl AidEscrow {
             return Err(Error::InvalidAmount);
         }
 
-        // 2. Validate token interface and fetch decimals dynamically.
-        let decimals = Self::validate_token(&env, &token)?;
+        // 2. Validate token interface, decimal bounds, and fetch decimals dynamically.
+        //    The min/max-decimals policy is read from the active config so that
+        //    `Error::InvalidTokenDecimals` is returned for tokens outside
+        //    `[config.min_decimals, MAX_TOKEN_DECIMALS]`.
+        let config = Self::get_config(env.clone());
+        let decimals = Self::validate_token(&env, &token, config.min_decimals)?;
 
         // 3. Dynamic Precision Check
         // Instead of checking 6 AND 8, we check ONLY the decimals this token uses.
@@ -518,7 +692,7 @@ impl AidEscrow {
 
         // --- DYNAMIC PRECISION CHECK ---
         // Fetch the actual decimals from a validated token contract.
-        let decimals = Self::validate_token(&env, &token)?;
+        let decimals = Self::validate_token(&env, &token, config.min_decimals)?;
         let unit = 10i128.pow(decimals);
 
         // Enforce that only whole units can be used (if that is your business requirement).
@@ -588,6 +762,9 @@ impl AidEscrow {
 
         env.storage().persistent().set(&key, &package);
 
+        // Increment running committed total for the token
+        Self::add_to_status_totals(&env, &token, PackageStatus::Created, amount);
+
         let counter: u64 = env.storage().instance().get(&KEY_PKG_COUNTER).unwrap_or(0);
         if id >= counter {
             env.storage().instance().set(&KEY_PKG_COUNTER, &(id + 1));
@@ -647,7 +824,7 @@ impl AidEscrow {
             return Err(Error::InvalidState);
         }
 
-        let decimals = Self::validate_token(&env, &token)?;
+        let decimals = Self::validate_token(&env, &token, config.min_decimals)?;
         let unit = 10i128.pow(decimals);
         let contract_balance = Self::token_balance(&env, &token, &env.current_contract_address())?;
 
@@ -713,6 +890,9 @@ impl AidEscrow {
             };
 
             env.storage().persistent().set(&key, &package);
+
+            // Track running committed total
+            Self::add_to_status_totals(&env, &token, PackageStatus::Created, amount);
 
             // Track package index for aggregation
             let idx_key = (symbol_short!("pidx"), idx);
@@ -804,6 +984,13 @@ impl AidEscrow {
         proof: Vec<String>,
     ) -> Result<(), Error> {
         Self::check_action_paused(&env, symbol_short!("claim"))?;
+
+        // --- ENFORCE MERKLE PROOF CAP ---
+        if proof.len() > 32 {
+            return Err(Error::ProofTooLarge);
+        }
+        // ---------------------------------
+
         let key = (symbol_short!("pkg"), id);
         let mut package: Package = env
             .storage()
@@ -828,9 +1015,11 @@ impl AidEscrow {
 
         match Self::merkle_root_from_metadata(&env, &package.metadata) {
             Some(root) => {
-                if !Self::verify_merkle_proof_for_claimant(&env, &claimant, &proof, root) {
-                    return Err(Error::InvalidProof);
-                }
+                let expires_at =
+                    Self::merkle_root_expires_at_from_metadata(&env, &package.metadata);
+                Self::verify_merkle_proof_for_claimant(
+                    &env, &claimant, &proof, root, expires_at, now,
+                )?;
                 Self::finalize_claim(&env, &key, &mut package, id, &claimant, now)
             }
             None => {
@@ -877,6 +1066,15 @@ impl AidEscrow {
         // Update Locked
         Self::decrement_locked(&env, &package.token, package.amount);
 
+        // Transition aggregate totals: Created → Claimed
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Created,
+            -package.amount,
+        );
+        Self::add_to_status_totals(&env, &package.token, PackageStatus::Claimed, package.amount);
+
         let timestamp = env.ledger().timestamp();
         PackageDisbursed {
             package_id: id,
@@ -913,6 +1111,20 @@ impl AidEscrow {
         // Unlock funds (return to pool)
         Self::decrement_locked(&env, &package.token, package.amount);
 
+        // Transition aggregate totals: Created → Cancelled (counts as expired/cancelled)
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Created,
+            -package.amount,
+        );
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Cancelled,
+            package.amount,
+        );
+
         let timestamp = env.ledger().timestamp();
         PackageRevoked {
             package_id: id,
@@ -942,6 +1154,11 @@ impl AidEscrow {
         // If Refunded, impossible.
         let should_unlock_locked =
             package.status == PackageStatus::Created || package.status == PackageStatus::Expired;
+
+        // Capture whether the package was in Created status before any mutations.
+        // Packages already in Expired or Cancelled are already counted in
+        // expired_cancelled and do not need aggregate adjustments.
+        let was_committed = package.status == PackageStatus::Created;
 
         if package.status == PackageStatus::Created {
             // Check if actually expired
@@ -975,6 +1192,22 @@ impl AidEscrow {
         // State Transition
         package.status = PackageStatus::Refunded;
         env.storage().persistent().set(&key, &package);
+
+        // Transition aggregate totals: if the package was Committed, move it to expired/cancelled.
+        if was_committed {
+            Self::add_to_status_totals(
+                &env,
+                &package.token,
+                PackageStatus::Created,
+                -package.amount,
+            );
+            Self::add_to_status_totals(
+                &env,
+                &package.token,
+                PackageStatus::Refunded,
+                package.amount,
+            );
+        }
 
         let timestamp = env.ledger().timestamp();
         PackageRefunded {
@@ -1020,6 +1253,20 @@ impl AidEscrow {
 
         // 5. Unlock funds (Decrement the global locked amount so funds return to the pool)
         Self::decrement_locked(&env, &package.token, package.amount);
+
+        // Transition aggregate totals: Created → Cancelled (counts as expired/cancelled)
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Created,
+            -package.amount,
+        );
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Cancelled,
+            package.amount,
+        );
 
         let timestamp = env.ledger().timestamp();
         PackageRevoked {
@@ -1123,8 +1370,12 @@ impl AidEscrow {
             return Err(Error::InvalidAmount);
         }
 
-        // 3. Get contract's current balance for the token
-        Self::validate_token(&env, &token)?;
+        // 3. Get contract's current balance for the token. The min decimals
+        //    policy is sourced from the active config so staking withdrawals on
+        //    low-decimal tokens can be restricted just like funding and
+        //    package creation.
+        let config = Self::get_config(env.clone());
+        Self::validate_token(&env, &token, config.min_decimals)?;
         let contract_balance = Self::token_balance(&env, &token, &env.current_contract_address())?;
 
         // 4. Get total locked amount for the token
@@ -1203,11 +1454,30 @@ impl AidEscrow {
         env.storage().instance().set(&KEY_TOTAL_LOCKED, &locked_map);
     }
 
-    fn validate_token(env: &Env, token: &Address) -> Result<u32, Error> {
+    /// Validates a token contract against the configured decimals policy.
+    ///
+    /// # Behaviour
+    /// - Calls the token's `decimals()` via `try_invoke_contract`.
+    /// - If the call fails or returns a malformed value (RPC / decoder
+    ///   failure) → `Error::InvalidToken`.
+    /// - If `decimals < min_decimals` or `decimals > MAX_TOKEN_DECIMALS` →
+    ///   `Error::InvalidTokenDecimals`.
+    /// - Otherwise returns the decoded decimals value.
+    ///
+    /// `min_decimals` is passed in (rather than read from storage inside this
+    /// function) so callers like `set_config` validate against the *new*
+    /// config being submitted instead of stale on-chain state.
+    fn validate_token(env: &Env, token: &Address, min_decimals: u32) -> Result<u32, Error> {
         let args: Vec<Val> = Vec::new(env);
 
         match env.try_invoke_contract::<u32, Error>(token, &symbol_short!("decimals"), args) {
-            Ok(Ok(decimals)) if decimals <= 38 => Ok(decimals),
+            Ok(Ok(decimals)) => {
+                if decimals < min_decimals || decimals > MAX_TOKEN_DECIMALS {
+                    Err(Error::InvalidTokenDecimals)
+                } else {
+                    Ok(decimals)
+                }
+            }
             _ => Err(Error::InvalidToken),
         }
     }
@@ -1295,16 +1565,9 @@ impl AidEscrow {
         // Update Global Locked (Bookkeeping)
         Self::decrement_locked(env, &package.token, package.amount);
 
-        let mut claimed_map: Map<Address, i128> = env
-            .storage()
-            .instance()
-            .get(&KEY_TOTAL_CLAIMED)
-            .unwrap_or(Map::new(env));
-        let current_total = claimed_map.get(package.token.clone()).unwrap_or(0);
-        claimed_map.set(package.token.clone(), current_total + package.amount);
-        env.storage()
-            .instance()
-            .set(&KEY_TOTAL_CLAIMED, &claimed_map);
+        // Transition aggregate totals: Created → Claimed
+        Self::add_to_status_totals(env, &package.token, PackageStatus::Created, -package.amount);
+        Self::add_to_status_totals(env, &package.token, PackageStatus::Claimed, package.amount);
 
         PackageClaimed {
             package_id,
@@ -1325,23 +1588,41 @@ impl AidEscrow {
             .and_then(|hex| Self::parse_hex_32(&hex))
     }
 
+    /// Reads the optional `merkle_root_expires_at` metadata field.
+    /// Returns `0` (never expires) when absent or unparseable.
+    fn merkle_root_expires_at_from_metadata(env: &Env, metadata: &Map<Symbol, String>) -> u64 {
+        let key = Symbol::new(env, META_MERKLE_ROOT_EXPIRES_AT_KEY);
+        match metadata.get(key) {
+            Some(raw) => Self::parse_u64(raw).unwrap_or(0),
+            None => 0,
+        }
+    }
+
     fn verify_merkle_proof_for_claimant(
         env: &Env,
         claimant: &Address,
         proof: &Vec<String>,
         expected_root: [u8; 32],
-    ) -> bool {
+        expires_at: u64,
+        now: u64,
+    ) -> Result<(), Error> {
+        // Reject stale-but-active roots before doing any proof work. An
+        // expiry of 0 means the allowlist never expires (legacy packages).
+        if expires_at > 0 && expires_at <= now {
+            return Err(Error::AllowlistExpired);
+        }
+
         let mut current = Self::hash_address(env, claimant);
 
         for i in 0..proof.len() {
             let sibling_hex = match proof.get(i) {
                 Some(v) => v,
-                None => return false,
+                None => return Err(Error::InvalidProof),
             };
 
             let sibling = match Self::parse_hex_32(&sibling_hex) {
                 Some(v) => v,
-                None => return false,
+                None => return Err(Error::InvalidProof),
             };
 
             current = if current <= sibling {
@@ -1351,7 +1632,11 @@ impl AidEscrow {
             };
         }
 
-        current == expected_root
+        if current == expected_root {
+            Ok(())
+        } else {
+            Err(Error::InvalidProof)
+        }
     }
 
     fn hash_address(env: &Env, address: &Address) -> [u8; 32] {
@@ -1416,6 +1701,45 @@ impl AidEscrow {
         }
     }
 
+    /// Updates the running per-token status totals in constant time.
+    ///
+    /// Maps `PackageStatus::Created` → `KEY_TOTAL_COMMITTED`,
+    /// `PackageStatus::Claimed` → `KEY_TOTAL_CLAIMED`, and
+    /// `Expired | Cancelled | Refunded` → `KEY_TOTAL_EXPIRED_CANCELLED`.
+    /// A negative `amount` subtracts from the total (clamped at zero).
+    fn add_to_status_totals(env: &Env, token: &Address, status: PackageStatus, amount: i128) {
+        let key = match status {
+            PackageStatus::Created => KEY_TOTAL_COMMITTED,
+            PackageStatus::Claimed => KEY_TOTAL_CLAIMED,
+            PackageStatus::Expired | PackageStatus::Cancelled | PackageStatus::Refunded => {
+                KEY_TOTAL_EXPIRED_CANCELLED
+            }
+        };
+
+        if amount == 0 {
+            return;
+        }
+
+        let mut map: Map<Address, i128> =
+            env.storage().instance().get(&key).unwrap_or(Map::new(env));
+
+        let current = map.get(token.clone()).unwrap_or(0);
+
+        if amount > 0 {
+            map.set(token.clone(), current + amount);
+        } else {
+            let abs_amount = -amount;
+            let new_total = if current > abs_amount {
+                current - abs_amount
+            } else {
+                0
+            };
+            map.set(token.clone(), new_total);
+        }
+
+        env.storage().instance().set(&key, &map);
+    }
+
     /// Returns the total amount currently locked for a specific token.
     pub fn get_total_locked(env: Env, token: Address) -> i128 {
         let locked_map: Map<Address, i128> = env
@@ -1477,50 +1801,33 @@ impl AidEscrow {
 
     // --- Analytics ---
 
-    /// Returns aggregate statistics for a given token.
+    /// Returns aggregate statistics for a given token in constant time.
     ///
-    /// Iterates across all created packages and computes:
-    /// - `total_committed`: sum of amounts for packages still in `Created` status,
-    /// - `total_claimed`: sum of amounts for packages in `Claimed` status,
-    /// - `total_expired_cancelled`: sum of amounts for packages in `Expired`,
-    ///    `Cancelled`, or `Refunded` status.
-    ///
-    /// This is a read-only view intended for dashboards and analytics.
+    /// Running totals are maintained incrementally at every status transition
+    /// via `add_to_status_totals`, so this read never iterates over packages.
     pub fn get_aggregates(env: Env, token: Address) -> Aggregates {
-        let count: u64 = env.storage().instance().get(&KEY_PKG_IDX).unwrap_or(0);
+        let committed_map: Map<Address, i128> = env
+            .storage()
+            .instance()
+            .get(&KEY_TOTAL_COMMITTED)
+            .unwrap_or(Map::new(&env));
 
-        let mut total_committed: i128 = 0;
-        let mut total_claimed: i128 = 0;
-        let mut total_expired_cancelled: i128 = 0;
+        let claimed_map: Map<Address, i128> = env
+            .storage()
+            .instance()
+            .get(&KEY_TOTAL_CLAIMED)
+            .unwrap_or(Map::new(&env));
 
-        for i in 0..count {
-            let idx_key = (symbol_short!("pidx"), i);
-            if let Some(pkg_id) = env.storage().persistent().get::<_, u64>(&idx_key) {
-                let pkg_key = (symbol_short!("pkg"), pkg_id);
-                if let Some(package) = env.storage().persistent().get::<_, Package>(&pkg_key) {
-                    if package.token == token {
-                        match package.status {
-                            PackageStatus::Created => {
-                                total_committed += package.amount;
-                            }
-                            PackageStatus::Claimed => {
-                                total_claimed += package.amount;
-                            }
-                            PackageStatus::Expired
-                            | PackageStatus::Cancelled
-                            | PackageStatus::Refunded => {
-                                total_expired_cancelled += package.amount;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let expired_cancelled_map: Map<Address, i128> = env
+            .storage()
+            .instance()
+            .get(&KEY_TOTAL_EXPIRED_CANCELLED)
+            .unwrap_or(Map::new(&env));
 
         Aggregates {
-            total_committed,
-            total_claimed,
-            total_expired_cancelled,
+            total_committed: committed_map.get(token.clone()).unwrap_or(0),
+            total_claimed: claimed_map.get(token.clone()).unwrap_or(0),
+            total_expired_cancelled: expired_cancelled_map.get(token).unwrap_or(0),
         }
     }
 

@@ -16,6 +16,8 @@ from api.v1 import (
     humanitarian,
     fraud,
     artifacts,
+    pii_decisions,
+    upload_large,
 )
 
 v1_router = APIRouter(prefix="/v1")
@@ -27,3 +29,7 @@ v1_router.include_router(anonymize.router)
 v1_router.include_router(humanitarian.router)
 v1_router.include_router(fraud.router)
 v1_router.include_router(artifacts.router)
+# Auditor endpoint for PII decision records (Issue #274).
+v1_router.include_router(pii_decisions.router)
+# Large-payload ingest with per-route 64 MiB cap (Issue #267).
+v1_router.include_router(upload_large.router)

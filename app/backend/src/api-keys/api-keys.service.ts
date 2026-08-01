@@ -3,22 +3,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppRole } from '../auth/app-role.enum';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
 import { assertNoCycle } from './cycle-check';
+import { hashApiKey, maskApiKeyPreview } from './api-key-hash.util';
 
 type Actor = { apiKeyId?: string; authType?: string; role?: AppRole };
-
-const maskPreview = (rawKey: string): string => {
-  const prefix = rawKey.slice(0, 6);
-  const suffix = rawKey.slice(-4);
-  return `${prefix}...${suffix}`;
-};
-
-const sha256Hex = (value: string): string =>
-  createHash('sha256').update(value).digest('hex');
 
 @Injectable()
 export class ApiKeysService {
@@ -41,8 +33,8 @@ export class ApiKeysService {
     }
 
     const rawKey = this.newRawKey();
-    const keyHash = sha256Hex(rawKey);
-    const keyPreview = maskPreview(rawKey);
+    const keyHash = await hashApiKey(rawKey);
+    const keyPreview = maskApiKeyPreview(rawKey);
 
     const row = await this.prisma.apiKey.create({
       data: {
@@ -167,8 +159,8 @@ export class ApiKeysService {
       }
 
       const rawKey = this.newRawKey();
-      const keyHash = sha256Hex(rawKey);
-      const keyPreview = maskPreview(rawKey);
+      const keyHash = await hashApiKey(rawKey);
+      const keyPreview = maskApiKeyPreview(rawKey);
 
       const replacement = await tx.apiKey.create({
         data: {

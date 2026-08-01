@@ -57,6 +57,7 @@ impl TestSetup {
             min_amount: 1,
             max_expires_in: 0,
             allowed_tokens: Vec::new(&env),
+            min_decimals: 0,
         });
 
         Self {

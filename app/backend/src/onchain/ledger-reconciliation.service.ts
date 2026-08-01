@@ -156,7 +156,9 @@ export class LedgerReconciliationService {
       }
 
       // Check amount mismatch
-      const amountDiff = Math.abs(onChainEntry.amount - storedEntry.amount);
+      const amountDiff = Math.abs(
+        onChainEntry.amount - storedEntry.amount.toNumber(),
+      );
       const amountDiffPercent = (amountDiff / onChainEntry.amount) * 100;
 
       if (amountDiffPercent > thresholdPercent) {

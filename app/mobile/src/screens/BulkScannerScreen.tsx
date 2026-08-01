@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Text,
   View,
   StyleSheet,
   Dimensions,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { BarCodeScanner } from 'expo-barcode-scanner';
@@ -27,10 +26,19 @@ interface SessionStats {
   skipped: number;
 }
 
+const MAX_CONCURRENT = 4;
+const RATE_LIMIT_MS = 300;
+const DEDUP_TTL_MS = 5000;
+
+export const parseQRCode = (data: string): string | null => {
+  const match = data.match(/^chainforge:\/\/package\/(.+)$/);
+  return match?.[1] ?? null;
+};
+
 export const BulkScannerScreen: React.FC<Props> = ({ navigation }) => {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [lastScanResult, setLastScanResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+  const [inFlightCount, setInFlightCount] = useState(0);
+  const [lastScanResult, setLastScanResult] = useState<{ status: 'success' | 'error' | 'skipped'; message: string } | null>(null);
   const [stats, setStats] = useState<SessionStats>({
     scanned: 0,
     verified: 0,
@@ -38,6 +46,8 @@ export const BulkScannerScreen: React.FC<Props> = ({ navigation }) => {
     skipped: 0,
   });
 
+  const seenRef = useRef<Map<string, number>>(new Map());
+  const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { colors } = useTheme();
   const { queueClaimConfirmation, isConnected } = useSync();
 
@@ -50,45 +60,76 @@ export const BulkScannerScreen: React.FC<Props> = ({ navigation }) => {
     getBarCodeScannerPermissions();
   }, []);
 
-  const handleBarCodeScanned = async ({ type, data }: { type: string; data: string }) => {
-    if (isProcessing) return;
-    setIsProcessing(true);
+  useEffect(() => {
+    return () => {
+      if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
+    };
+  }, []);
 
-    // Check if it's the correct format: chainforge://package/{id}
-    const regex = /^chainforge:\/\/package\/(.+)$/;
-    const match = data.match(regex);
+  const showResult = useCallback(
+    (result: { status: 'success' | 'error' | 'skipped'; message: string }) => {
+      if (resultTimerRef.current) clearTimeout(resultTimerRef.current);
+      setLastScanResult(result);
+      resultTimerRef.current = setTimeout(() => setLastScanResult(null), 2000);
+    },
+    [],
+  );
 
-    setStats(prev => ({ ...prev, scanned: prev.scanned + 1 }));
+  const handleBarCodeScanned = useCallback(
+    async ({ type, data }: { type: string; data: string }) => {
+      if (inFlightCount >= MAX_CONCURRENT) return;
 
-    if (match && match[1]) {
-      const aidId = match[1];
-      const claimId = `claim-${aidId}`; // Assuming standard claimId format for bulk verify
+      const aidId = parseQRCode(data);
+
+      if (!aidId) {
+        setStats(prev => ({ ...prev, scanned: prev.scanned + 1, failed: prev.failed + 1 }));
+        showResult({ status: 'error', message: 'Invalid ChainForge QR code.' });
+        return;
+      }
+
+      const now = Date.now();
+      const lastSeen = seenRef.current.get(aidId);
+
+      if (lastSeen && now - lastSeen < DEDUP_TTL_MS) {
+        setStats(prev => ({ ...prev, scanned: prev.scanned + 1, skipped: prev.skipped + 1 }));
+        showResult({ status: 'skipped', message: 'Duplicate scan — skipped.' });
+        return;
+      }
+
+      if (lastSeen && now - lastSeen < RATE_LIMIT_MS) {
+        setStats(prev => ({ ...prev, scanned: prev.scanned + 1, skipped: prev.skipped + 1 }));
+        showResult({ status: 'skipped', message: 'Rate limited — slow down.' });
+        return;
+      }
+
+      seenRef.current.set(aidId, now);
+      setStats(prev => ({ ...prev, scanned: prev.scanned + 1 }));
+      setInFlightCount(prev => prev + 1);
+
+      const claimId = `claim-${aidId}`;
 
       try {
         const result = await queueClaimConfirmation(aidId, claimId);
-        
+
         if (result.status === 'completed' || result.status === 'queued') {
           setStats(prev => ({ ...prev, verified: prev.verified + 1 }));
-          setLastScanResult({ 
-            status: 'success', 
-            message: result.status === 'completed' ? 'Package verified successfully!' : 'Package queued for verification (offline).'
+          showResult({
+            status: 'success',
+            message:
+              result.status === 'completed'
+                ? 'Package verified successfully!'
+                : 'Package queued for verification (offline).',
           });
         }
-      } catch (error) {
+      } catch {
         setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
-        setLastScanResult({ status: 'error', message: 'Verification failed. Please try again.' });
+        showResult({ status: 'error', message: 'Verification failed. Please try again.' });
+      } finally {
+        setInFlightCount(prev => prev - 1);
       }
-    } else {
-      setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
-      setLastScanResult({ status: 'error', message: 'Invalid ChainForge QR code.' });
-    }
-
-    // Short delay before allowing the next scan to provide feedback
-    setTimeout(() => {
-      setIsProcessing(false);
-      setLastScanResult(null);
-    }, 2000);
-  };
+    },
+    [inFlightCount, queueClaimConfirmation, showResult],
+  );
 
   if (hasPermission === null) {
     return (
@@ -112,10 +153,12 @@ export const BulkScannerScreen: React.FC<Props> = ({ navigation }) => {
     );
   }
 
+  const isAtCapacity = inFlightCount >= MAX_CONCURRENT;
+
   return (
     <View style={styles.container}>
       <BarCodeScanner
-        onBarCodeScanned={isProcessing ? undefined : handleBarCodeScanned}
+        onBarCodeScanned={isAtCapacity ? undefined : handleBarCodeScanned}
         style={StyleSheet.absoluteFillObject}
       />
 
@@ -134,31 +177,42 @@ export const BulkScannerScreen: React.FC<Props> = ({ navigation }) => {
             <Text style={[styles.statValue, { color: colors.error }]}>{stats.failed}</Text>
             <Text style={styles.statLabel}>Failed</Text>
           </View>
+          <View style={styles.statItem}>
+            <Text style={[styles.statValue, { color: colors.warning ?? '#FFD700' }]}>{inFlightCount}</Text>
+            <Text style={styles.statLabel}>In Flight</Text>
+          </View>
         </View>
 
         <View style={styles.viewfinderContainer}>
-           <View style={[styles.viewfinder, isProcessing && styles.viewfinderProcessing]} />
+           <View style={[styles.viewfinder, isAtCapacity && styles.viewfinderProcessing]} />
         </View>
 
         {/* Feedback Area */}
         <View style={styles.feedbackContainer}>
-          {isProcessing && !lastScanResult && (
+          {isAtCapacity && !lastScanResult && (
             <View style={styles.processingIndicator}>
               <ActivityIndicator color="white" size="small" />
-              <Text style={styles.processingText}>Processing...</Text>
+              <Text style={styles.processingText}>Processing {inFlightCount}/{MAX_CONCURRENT}…</Text>
             </View>
           )}
 
           {lastScanResult && (
             <View style={[
-              styles.resultBadge, 
-              { backgroundColor: lastScanResult.status === 'success' ? colors.success : colors.error }
+              styles.resultBadge,
+              {
+                backgroundColor:
+                  lastScanResult.status === 'success'
+                    ? colors.success
+                    : lastScanResult.status === 'skipped'
+                      ? (colors.warning ?? '#FFD700')
+                      : colors.error,
+              },
             ]}>
               <Text style={styles.resultText}>{lastScanResult.message}</Text>
             </View>
           )}
 
-          {!isProcessing && !lastScanResult && (
+          {!isAtCapacity && !lastScanResult && (
             <Text style={styles.instructionText}>Align QR code to scan</Text>
           )}
 

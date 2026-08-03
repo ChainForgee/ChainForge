@@ -84,11 +84,17 @@ class ImagePreprocessor:
 
             thresholded = self.apply_threshold(gray, method=threshold_method)
 
-            # Final cleanup: small morphological closing to improve low-contrast/blur robustness
+            # Final cleanup: small morphological closing to improve low-contrast/blur robustness.
+            # NOTE: OpenCV operates on numpy arrays, so convert the PIL Image to a numpy array
+            # before calling morphologyEx, then convert the result back to a PIL Image so the
+            # preprocess() return type stays consistent (PIL Image) for downstream consumers.
+            thresholded_np = self.image_to_numpy(thresholded)
             kernel = np.ones((3, 3), np.uint8)
-            thresholded = cv2.morphologyEx(thresholded, cv2.MORPH_CLOSE, kernel, iterations=1)
+            thresholded_np = cv2.morphologyEx(
+                thresholded_np, cv2.MORPH_CLOSE, kernel, iterations=1
+            )
 
-            return thresholded
+            return self.numpy_to_image(thresholded_np)
         finally:
             latency = time.time() - start_time
             metrics.PIPELINE_STEP_LATENCY.labels(step_name='preprocess').observe(latency)

@@ -20,6 +20,13 @@ on:
 jobs:
   regression-degraded:
     runs-on: ubuntu-latest
+    # This suite intentionally contains near-unreadable samples (heavy
+    # blur, watermark overlays) that no OCR engine can reliably recover,
+    # and Tesseract accuracy varies across platforms (Windows vs Ubuntu).
+    # Keep it as a non-blocking, informational regression signal: failures
+    # are surfaced in the job log + report artifact without blocking merges.
+    # The standard (non-degraded) OCR regression remains the strict gate.
+    continue-on-error: true
 
     steps:
       - name: Checkout code

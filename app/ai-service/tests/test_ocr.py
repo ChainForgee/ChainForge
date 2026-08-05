@@ -84,7 +84,7 @@ class TestOCRService:
 
         from PIL import Image
 
-        def fake_run_tesseract(_image):
+        def fake_run_tesseract(_image, psm=6):
             return {
                 "text": ["Name:", "John", "Doe", "ID", "AB123456"],
                 "conf": [90, 92, 91, 88, 95],

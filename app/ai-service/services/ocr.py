@@ -84,41 +84,91 @@ class OCRService:
         self.test_provider = TestProvider()
 
     def _try_orientation(self, image: Image.Image, angle: int):
-        """Run OCR on an image rotated by `angle` degrees, return (num_fields, total_conf, OCRResult)."""
+        """Run OCR on an image rotated by `angle` degrees.
+
+        Returns (num_fields, total_conf, OCRResult) for the best preprocessing
+        variant. We evaluate several preprocessing strategies for robustness
+        against rotation, low contrast, blur, and low resolution:
+          - raw grayscale (often best for already-clean / slightly degraded input)
+          - CLAHE contrast-normalized + Otsu (best for low-contrast input)
+          - 2x upscaled + CLAHE + Otsu (helps low-resolution input)
+        The candidate that yields the most detected fields (then highest
+        aggregated confidence) is returned.
+
+        Page-segmentation modes 6 (uniform block) and 11 (sparse text) are both
+        attempted because they complement each other on degraded documents:
+        11 recovers low-resolution text that 6 often misses, while 6 usually
+        parses well-formed blocks cleanly.
+        """
         rotated = image.rotate(angle, expand=True) if angle else image
-        preprocessed = self.preprocessor.preprocess(
-            rotated, threshold_method="otsu", denoise=True
-        )
 
-        if preprocessed.size[0] == 0 or preprocessed.size[1] == 0:
+        # Raw grayscale (no CLAHE / thresholding) often preserves low-resolution
+        # text better than a binarised image, so evaluate it as its own pass.
+        raw_gray = rotated.convert("L") if rotated.mode != "L" else rotated
+
+        candidates = [
+            ("gray", self.preprocessor.preprocess(
+                rotated, threshold_method="otsu", denoise=False
+            )),
+            ("clahe", self.preprocessor.preprocess(
+                rotated, threshold_method="otsu", denoise=True
+            )),
+            ("raw_gray", raw_gray),
+        ]
+        # Add an upscaled candidate to help low-resolution images.
+        upscaled = self._upscale(rotated)
+        if upscaled is not None:
+            candidates.append(
+                ("upscale_clahe", self.preprocessor.preprocess(
+                    upscaled, threshold_method="otsu", denoise=True
+                ))
+            )
+
+        best = None
+        for _label, preprocessed in candidates:
+            if preprocessed.size[0] == 0 or preprocessed.size[1] == 0:
+                continue
+
+            for psm in (6, 11, 12):
+                tesseract_data = self._run_tesseract(preprocessed, psm=psm)
+
+                raw_text = tesseract_data.get("text", "")
+                if isinstance(raw_text, list):
+                    raw_text = " ".join(str(t) for t in raw_text if t)
+                raw_text = str(raw_text) if raw_text else ""
+
+                fields = self.field_detector.detect_fields(raw_text)
+
+                total_conf = 0.0
+                for field_name, field_match in fields.items():
+                    field_chars = self._extract_field_chars(
+                        tesseract_data, field_match.value
+                    )
+                    field_match.confidence = self.field_detector.aggregate_confidence(
+                        field_chars
+                    )
+                    total_conf += field_match.confidence
+
+                ocr_result = OCRResult(
+                    fields=fields,
+                    raw_text=raw_text,
+                    processing_time_ms=0,
+                )
+
+                score = (len(fields), total_conf)
+                if best is None or score > best[0]:
+                    best = (score, ocr_result)
+
+        if best is None:
             return None
+        return (best[0][0], best[0][1], best[1])
 
-        tesseract_data = self._run_tesseract(preprocessed)
-
-        raw_text = tesseract_data.get("text", "")
-        if isinstance(raw_text, list):
-            raw_text = " ".join(str(t) for t in raw_text if t)
-        raw_text = str(raw_text) if raw_text else ""
-
-        fields = self.field_detector.detect_fields(raw_text)
-
-        total_conf = 0.0
-        for field_name, field_match in fields.items():
-            field_chars = self._extract_field_chars(
-                tesseract_data, field_match.value
-            )
-            field_match.confidence = self.field_detector.aggregate_confidence(
-                field_chars
-            )
-            total_conf += field_match.confidence
-
-        ocr_result = OCRResult(
-            fields=fields,
-            raw_text=raw_text,
-            processing_time_ms=0,
-        )
-
-        return (len(fields), total_conf, ocr_result)
+    @staticmethod
+    def _upscale(image: Image.Image):
+        """Return a 2x upscaled copy of the image (or None if it is empty)."""
+        if image.size[0] == 0 or image.size[1] == 0:
+            return None
+        return image.resize((image.size[0] * 2, image.size[1] * 2), Image.LANCZOS)
 
     def process_image(self, image: Image.Image) -> OCRResult:
         if settings.test_provider_mode:
@@ -173,8 +223,8 @@ class OCRService:
             processing_time_ms=int(latency * 1000),
         )
 
-    def _run_tesseract(self, image: Image.Image) -> dict:
-        config = "--psm 6 --oem 3"
+    def _run_tesseract(self, image: Image.Image, psm: int = 6) -> dict:
+        config = f"--psm {psm} --oem 3"
         data = pytesseract.image_to_data(
             image, config=config, output_type=pytesseract.Output.DICT
         )

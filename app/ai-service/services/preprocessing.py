@@ -84,17 +84,12 @@ class ImagePreprocessor:
 
             thresholded = self.apply_threshold(gray, method=threshold_method)
 
-            # Final cleanup: small morphological closing to improve low-contrast/blur robustness.
-            # NOTE: OpenCV operates on numpy arrays, so convert the PIL Image to a numpy array
-            # before calling morphologyEx, then convert the result back to a PIL Image so the
-            # preprocess() return type stays consistent (PIL Image) for downstream consumers.
-            thresholded_np = self.image_to_numpy(thresholded)
-            kernel = np.ones((3, 3), np.uint8)
-            thresholded_np = cv2.morphologyEx(
-                thresholded_np, cv2.MORPH_CLOSE, kernel, iterations=1
-            )
-
-            return self.numpy_to_image(thresholded_np)
+            # NOTE: We intentionally do NOT apply morphological operations here.
+            # Otsu thresholding produces dark text on a light background, and
+            # morphological closing on that layout erodes the thin text strokes
+            # (dilation of the white background shrinks the black glyphs), which
+            # destroys the characters and severely degrades OCR accuracy.
+            return thresholded
         finally:
             latency = time.time() - start_time
             metrics.PIPELINE_STEP_LATENCY.labels(step_name='preprocess').observe(latency)
@@ -108,3 +103,4 @@ class ImagePreprocessor:
         if array.dtype != np.uint8:
             array = array.astype(np.uint8)
         return Image.fromarray(array)
+

@@ -1028,7 +1028,14 @@ impl AidEscrow {
                     Self::merkle_root_expires_at_from_metadata(&env, &package.metadata);
                 let leaf_version = Self::merkle_leaf_version_from_metadata(&env, &package.metadata);
                 Self::verify_merkle_proof_for_claimant(
-                    &env, &claimant, &proof, root, expires_at, now, &leaf_version, package.amount,
+                    &env,
+                    &claimant,
+                    &proof,
+                    root,
+                    expires_at,
+                    now,
+                    &leaf_version,
+                    package.amount,
                 )?;
                 Self::finalize_claim(&env, &key, &mut package, id, &claimant, now)
             }
@@ -1612,7 +1619,9 @@ impl AidEscrow {
     /// Returns `"v1"` (address-only, legacy) when absent.
     fn merkle_leaf_version_from_metadata(env: &Env, metadata: &Map<Symbol, String>) -> String {
         let key = Symbol::new(env, META_MERKLE_LEAF_VERSION_KEY);
-        metadata.get(key).unwrap_or_else(|| String::from_str(env, "v1"))
+        metadata
+            .get(key)
+            .unwrap_or_else(|| String::from_str(env, "v1"))
     }
 
     fn verify_merkle_proof_for_claimant(

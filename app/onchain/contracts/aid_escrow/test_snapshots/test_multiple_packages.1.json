@@ -733,6 +733,23 @@
                       },
                       {
                         "key": {
+                          "symbol": "cmt"
+                        },
+                        "val": {
+                          "map": [
+                            {
+                              "key": {
+                                "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                              },
+                              "val": {
+                                "i128": "30000000"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
                           "symbol": "config"
                         },
                         "val": {
@@ -759,6 +776,14 @@
                               },
                               "val": {
                                 "i128": "1"
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "min_decimals"
+                              },
+                              "val": {
+                                "u32": 0
                               }
                             }
                           ]

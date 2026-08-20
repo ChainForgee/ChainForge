@@ -62,7 +62,7 @@ fn test_core_flow_fund_create_claim() {
     assert_eq!(pkg.amount, UNIT);
 
     // 4. Claim
-    client.claim(&pkg_id);
+    client.claim(&pkg_id, &recipient);
 
     // Check Final State
     let pkg_claimed = client.get_package(&pkg_id);
@@ -163,7 +163,7 @@ fn test_expiry_and_refund() {
     env.ledger().set_timestamp(expiry + 1);
 
     // Recipient tries to claim -> Should Fail (Auto-expires)
-    let claim_res = client.try_claim(&pkg_id);
+    let claim_res = client.try_claim(&pkg_id, &recipient);
     assert_eq!(claim_res, Err(Ok(Error::PackageExpired)));
 
     // Admin refunds

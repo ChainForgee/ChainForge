@@ -264,7 +264,7 @@ mod token_interactions {
 
         t.token_sac.burn(&t.client.address, &ONE_TOKEN);
 
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
 
         assert_eq!(result, Err(Ok(Error::TokenTransferFailed)));
         assert_eq!(t.client.get_package(&id).status, PackageStatus::Created);
@@ -303,7 +303,7 @@ mod claim {
         let recipient = Address::generate(&t.env);
         let id = t.create_default_package(&recipient, TWO_TOKENS);
 
-        t.client.claim(&id);
+        t.client.claim(&id, &recipient);
         let pkg = t.client.get_package(&id);
         assert_eq!(pkg.status, PackageStatus::Claimed);
 
@@ -314,9 +314,10 @@ mod claim {
     #[test]
     fn fails_when_package_is_expired() {
         let t = TestSetup::new();
-        let id = t.create_default_package(&Address::generate(&t.env), ONE_TOKEN);
+        let recipient = Address::generate(&t.env);
+        let id = t.create_default_package(&recipient, ONE_TOKEN);
         t.advance_time(3601);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::PackageExpired)));
     }
 
@@ -342,11 +343,11 @@ mod claim {
             &metadata,
         );
         // Try to claim before claim_starts_at
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::ClaimTooEarly)));
         // Advance to claim_starts_at
         t.advance_time(1000);
-        let result2 = t.client.try_claim(&id);
+        let result2 = t.client.try_claim(&id, &recipient);
         assert!(result2.is_ok());
     }
 
@@ -373,11 +374,11 @@ mod claim {
             &metadata,
         );
         // Try to claim before claim_starts_at
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::ClaimTooEarly)));
         // Advance to claim_starts_at (== expires_at)
         t.advance_time(1000);
-        let result2 = t.client.try_claim(&id);
+        let result2 = t.client.try_claim(&id, &recipient);
         // Should succeed (allowed to claim at expiry boundary)
         assert!(result2.is_ok());
     }
@@ -388,7 +389,7 @@ mod claim {
         let recipient = Address::generate(&t.env);
         let id = t.create_default_package(&recipient, ONE_TOKEN);
         // Should be claimable immediately
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert!(result.is_ok());
     }
 
@@ -418,7 +419,7 @@ mod claim {
         );
 
         // Direct claim path should reject Merkle-protected package.
-        let direct = t.client.try_claim(&id);
+        let direct = t.client.try_claim(&id, &claimant);
         assert_eq!(direct, Err(Ok(Error::InvalidProof)));
 
         let proof: Vec<soroban_sdk::String> = Vec::new(&t.env);
@@ -591,7 +592,7 @@ mod edge_cases {
         );
         assert_eq!(r2, Err(Ok(Error::InsufficientFunds)));
 
-        t.client.claim(&1u64); // Release lock
+        t.client.claim(&1u64, &recipient); // Release lock
 
         t.fund_contract(ONE_TOKEN); // Refill
         let r3 = t.client.try_create_package(

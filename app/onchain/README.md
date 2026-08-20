@@ -10,6 +10,13 @@ Soroban smart contracts for ChainForge's on-chain escrow and claimable aid packa
 |---|---|---|
 | `aid_escrow` | Testnet | `CDSBJ27PKTNFTRW6OKPCVXDRUSSRUIQUG6DW5PUTKLDXTDT23NQIS6JG` |
 
+> **Redeploy required for delegate support.** The wasm deployed at the address
+> above predates the delegate/recovery entrypoints and the `claim(id, claimer)`
+> signature change. `set_delegate`, `get_delegate`, `get_delegate_info`,
+> `get_delegate_history`, and `cleanup_expired_delegates` are **not** callable on
+> the currently deployed contract until a new wasm is built and deployed. See
+> [the deployment runbook](../../docs/testnet-deploy-runbook.md).
+
 [View on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CDSBJ27PKTNFTRW6OKPCVXDRUSSRUIQUG6DW5PUTKLDXTDT23NQIS6JG) · [View on Stellar Lab](https://lab.stellar.org/r/testnet/contract/CDSBJ27PKTNFTRW6OKPCVXDRUSSRUIQUG6DW5PUTKLDXTDT23NQIS6JG) · [Deployment Record](deployments/testnet-2026-06-03.md)
 
 ---
@@ -65,7 +72,12 @@ Events use stable topic identifiers (struct name in snake_case) so indexers and 
 | `fund(token, from, amount)` | Deposits funds into the contract pool | `from` |
 | `create_package(operator, id, recipient, amount, token, expires_at)` | Creates a package with a manual ID | `admin` or `distributor` |
 | `batch_create_packages(operator, recipients, amounts, token, expires_in)` | Creates multiple packages with auto-incremented IDs | `admin` or `distributor` |
-| `claim(id)` | Recipient claims their allocated funds | `recipient` |
+| `claim(id, claimer)` | Recipient or a registered, unexpired delegate claims the package (funds always pay out to the recipient) | `recipient` or `delegate` |
+| `set_delegate(package_id, delegate, expires_at)` | Registers a delegate (recovery) address, optionally with an expiry (`0` = never). Rejected for claimed packages or when the delegate equals the recipient | `admin` |
+| `get_delegate(package_id)` | Returns the active delegate, or `None` if unset or expired | None |
+| `get_delegate_info(package_id)` | Returns the active delegate and its expiry | None |
+| `get_delegate_history(package_id)` | Returns the append-only delegate audit trail | None |
+| `cleanup_expired_delegates()` | Removes expired delegates, returning the number cleaned | `admin` |
 | `disburse(id)` | Admin manually sends package funds to recipient | `admin` |
 | `revoke(id)` / `cancel_package(id)` | Cancels an active package and unlocks funds | `admin` |
 | `refund(id)` | Returns funds from an expired/cancelled package to admin | `admin` |
@@ -112,8 +124,8 @@ Use `scripts/testnet-invoke.sh` for repeatable testnet calls against the `aid_es
   --amount 10000000 \
   --token CTOKEN...
 
-# Claim and inspect package state
-./scripts/testnet-invoke.sh claim --id 1
+# Claim (by recipient or a registered delegate) and inspect package state
+./scripts/testnet-invoke.sh claim --id 1 --claimer GRECIPIENT...
 ./scripts/testnet-invoke.sh get-package --id 1
 ./scripts/testnet-invoke.sh view-status --id 1
 ./scripts/testnet-invoke.sh get-aggregates --token CTOKEN...

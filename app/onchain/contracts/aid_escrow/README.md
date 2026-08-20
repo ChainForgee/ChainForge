@@ -12,6 +12,11 @@ Soroban smart contract for managing aid-package escrow on Stellar.
 | **Version**     | `0.1.0`                                                            |
 | **Deployed**    | 2026-06-03                                                         |
 
+> **Redeploy required.** The wasm deployed at this address predates the
+> delegate/recovery entrypoints (`set_delegate`, `get_delegate`, …) and the
+> `claim(id, claimer)` signature change; a new wasm must be built and deployed
+> before those functions are callable on testnet.
+
 Explorer: [Stellar Expert](https://stellar.expert/explorer/testnet/contract/CDSBJ27PKTNFTRW6OKPCVXDRUSSRUIQUG6DW5PUTKLDXTDT23NQIS6JG) · [Stellar Lab](https://lab.stellar.org/r/testnet/contract/CDSBJ27PKTNFTRW6OKPCVXDRUSSRUIQUG6DW5PUTKLDXTDT23NQIS6JG)
 
 Full deployment record with transaction hashes and verification steps: [deployments/testnet-2026-06-03.md](../../deployments/testnet-2026-06-03.md)
@@ -54,12 +59,22 @@ expires and is refunded.
 |---|---|---|
 | `create_package(env, operator, id, recipient, amount, token, expires_at)` | Admin / Distributor | Creates a single aid package with a specific ID. Locks funds from the available pool. |
 | `batch_create_packages(env, operator, recipients, amounts, token, expires_in)` | Admin / Distributor | Creates multiple packages in one transaction using auto-incrementing IDs. |
-| `claim(env, id)` | Recipient | Recipient claims the package. Transfers tokens to recipient and marks package as claimed. |
+| `claim(env, id, claimer)` | Recipient / Delegate | Recipient or a registered, unexpired delegate claims the package. Transfers tokens to the recipient and marks the package as claimed. |
 | `disburse(env, id)` | Admin | Admin manually disburses a package to its recipient. |
 | `revoke(env, id)` | Admin | Admin revokes a package, returning funds to the surplus pool. |
 | `refund(env, id)` | Admin | Refunds an expired or cancelled package to the admin. |
 | `cancel_package(env, package_id)` | Admin | Cancels a package (transitions to Cancelled status). |
 | `extend_expiration(env, package_id, additional_time)` | Admin / Distributor | Extends the expiration time of an active package. |
+
+### Delegate (Recovery) Support
+
+| Function | Auth | Description |
+|---|---|---|
+| `set_delegate(env, package_id, delegate, expires_at)` | Admin | Registers `delegate` as the recovery address for a package, optionally with an `expires_at` deadline (`0` = never). Rejected for claimed packages and when the delegate equals the recipient. |
+| `get_delegate(env, package_id)` | — | Returns the active delegate, or `None` if unset or expired. |
+| `get_delegate_info(env, package_id)` | — | Returns the active delegate and its expiry, or `None` if unset. |
+| `get_delegate_history(env, package_id)` | — | Returns the append-only audit trail of delegate assignments and removals. |
+| `cleanup_expired_delegates(env)` | Admin | Removes expired delegates from storage, returning the number cleaned up. |
 
 ### Queries
 
@@ -73,7 +88,7 @@ expires and is refunded.
 ## Package Lifecycle
 
 ```
-Created --> Claimed          (recipient claims)
+Created --> Claimed          (recipient or delegate claims)
 Created --> Expired          (past expiry, recipient tries to claim)
 Created --> Cancelled        (admin cancels)
 Created --> Claimed (admin)  (admin disburses)
@@ -143,7 +158,7 @@ All state-changing operations emit events with stable topics for indexer consump
 
 - `EscrowFunded` — pool funded
 - `PackageCreated` — package created
-- `PackageClaimed` — recipient claimed
+- `PackageClaimed` — package claimed (by recipient or delegate)
 - `PackageDisbursed` — admin disbursed
 - `PackageRevoked` — admin revoked
 - `PackageRefunded` — admin refunded

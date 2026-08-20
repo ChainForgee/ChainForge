@@ -44,11 +44,8 @@ for _mod in _PKG_STUBS:
         if _mod not in sys.modules:
             sys.modules[_mod] = _make_pkg(_mod)
 
-# proof_of_life raises RuntimeError at import time when cv2 is mocked.
-_pol = _make_pkg("proof_of_life")
-_pol.ProofOfLifeAnalyzer = MagicMock()
-_pol.ProofOfLifeConfig = MagicMock()
-sys.modules["proof_of_life"] = _pol
+# proof_of_life's __init__ loads cv2 cascade classifiers which work fine
+# with the mocked cv2 in conftest — no module-level stub needed.
 
 # Patch metrics.check_system_resources so the monitor_requests middleware
 # doesn't crash when torch (vram) is a MagicMock.

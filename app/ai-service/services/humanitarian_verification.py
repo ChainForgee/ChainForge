@@ -1,8 +1,9 @@
 """Humanitarian claim verification service with model/provider fallbacks."""
 
+import hashlib
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import time
 import metrics
 
@@ -11,6 +12,7 @@ import httpx
 from config import settings
 from services.humanitarian_prompt import HumanitarianPromptEngine
 from services.circuit_breaker import CircuitBreaker
+from services.pii_scrubber import PIIScrubberService
 from services.test_provider import TestProvider
 from exceptions import AIServiceError
 
@@ -20,9 +22,14 @@ logger = logging.getLogger(__name__)
 class HumanitarianVerificationService:
     """Runs humanitarian verification against configured LLM providers."""
 
+    _PII_SUMMARY_KEYS = ("names", "locations", "dates", "emails", "phones", "ids", "total")
+
     def __init__(self):
         self.prompt_engine = HumanitarianPromptEngine()
         self.test_provider = TestProvider()
+        # Issue #430: the scrubber is a mandatory preprocessing stage, not an
+        # optional endpoint. Raw recipient text must never reach a provider.
+        self.scrubber = PIIScrubberService()
         self.breakers = {
             "openai": CircuitBreaker(
                 name="openai",
@@ -49,15 +56,22 @@ class HumanitarianVerificationService:
             evidence = supporting_evidence or []
             context = context_factors or {}
 
+            # Issue #430: mandatory PII preprocessing before any provider
+            # call. Only the scrubbed inputs ever reach prompt construction,
+            # so raw recipient text cannot leave the trust boundary.
+            scrubbed_claim, scrubbed_evidence, scrubbed_context, pii_summary, pii_token_counts = (
+                self._scrub_inputs(aid_claim, evidence, context)
+            )
+
             primary_prompt = self.prompt_engine.build_primary_prompt(
-                aid_claim=aid_claim,
-                supporting_evidence=evidence,
-                context_factors=context,
+                aid_claim=scrubbed_claim,
+                supporting_evidence=scrubbed_evidence,
+                context_factors=scrubbed_context,
             )
             fallback_prompt = self.prompt_engine.build_fallback_prompt(
-                aid_claim=aid_claim,
-                supporting_evidence=evidence,
-                context_factors=context,
+                aid_claim=scrubbed_claim,
+                supporting_evidence=scrubbed_evidence,
+                context_factors=scrubbed_context,
             )
 
             providers = self._provider_attempt_order(provider_preference)
@@ -92,6 +106,16 @@ class HumanitarianVerificationService:
                         parsed = parse_verification_response(provider, raw_content)
                         if breaker:
                             breaker.record_success()
+                        # Aggregate-only audit record (counts + fingerprint,
+                        # never text) so the redaction decision is traceable.
+                        self._record_pii_decision(
+                            raw_claim=aid_claim,
+                            raw_evidence=evidence,
+                            raw_context=context,
+                            summary=pii_summary,
+                            token_counts=pii_token_counts,
+                            model=model,
+                        )
                         return {
                             "provider": provider,
                             "model": model,
@@ -102,7 +126,12 @@ class HumanitarianVerificationService:
                                 "provider": provider,
                                 "model": model,
                                 "prompt_variant": prompt_variant,
-                            }
+                            },
+                            "pii_scrubbing": {
+                                "applied": True,
+                                "anonymized": pii_summary["total"] > 0,
+                                "pii_summary": pii_summary,
+                            },
                         }
                     except Exception as exc:
                         if breaker:
@@ -115,6 +144,133 @@ class HumanitarianVerificationService:
         finally:
             latency = time.time() - start_time
             metrics.PIPELINE_STEP_LATENCY.labels(step_name='verify').observe(latency)
+
+    def _scrub_inputs(
+        self,
+        aid_claim: str,
+        evidence: List[str],
+        context: Dict[str, Any],
+    ) -> Tuple[str, List[str], Dict[str, Any], Dict[str, int], Dict[str, int]]:
+        """Fail-closed PII preprocessing stage for the verification pipeline.
+
+        Masks names/locations/dates/emails/phones/IDs in the claim, each
+        evidence entry, and string-valued context factors *before* any prompt
+        is built, so raw recipient text can never reach an external LLM
+        provider. Raises when scrubbing is disabled or fails rather than
+        silently forwarding unredacted text (Issue #430).
+
+        Returns the scrubbed inputs plus aggregated ``pii_summary`` and
+        ``token_counts`` for the response envelope and the audit store.
+        """
+        if not settings.pii_scrubbing_enabled:
+            raise RuntimeError(
+                "PII scrubbing is disabled (PII_SCRUBBING_ENABLED=false); "
+                "refusing to send unredacted evidence to an external LLM provider"
+            )
+
+        summary: Dict[str, int] = {key: 0 for key in self._PII_SUMMARY_KEYS}
+        token_counts: Dict[str, int] = {}
+
+        try:
+            scrubbed_claim, field_summary, field_tokens = self._scrub_field(aid_claim)
+            self._merge_scrub_stats(summary, token_counts, field_summary, field_tokens)
+
+            scrubbed_evidence: List[str] = []
+            for entry in evidence:
+                scrubbed, field_summary, field_tokens = self._scrub_field(entry)
+                scrubbed_evidence.append(scrubbed)
+                self._merge_scrub_stats(summary, token_counts, field_summary, field_tokens)
+
+            scrubbed_context: Dict[str, Any] = {}
+            for key, value in context.items():
+                if isinstance(value, str):
+                    scrubbed, field_summary, field_tokens = self._scrub_field(value)
+                    scrubbed_context[key] = scrubbed
+                    self._merge_scrub_stats(summary, token_counts, field_summary, field_tokens)
+                else:
+                    scrubbed_context[key] = value
+        except Exception as exc:
+            raise RuntimeError(
+                f"PII scrubbing failed ({exc}); refusing to send unredacted "
+                "evidence to an external LLM provider"
+            ) from exc
+
+        return scrubbed_claim, scrubbed_evidence, scrubbed_context, summary, token_counts
+
+    def _scrub_field(self, text: str) -> Tuple[str, Dict[str, int], Dict[str, int]]:
+        """Scrub one free-text field; returns (masked, summary, token_counts)."""
+        result = self.scrubber.scrub_text(text)
+        return (
+            result["anonymized_text"],
+            result["pii_summary"],
+            result["token_counts"],
+        )
+
+    def _merge_scrub_stats(
+        self,
+        summary: Dict[str, int],
+        token_counts: Dict[str, int],
+        field_summary: Dict[str, int],
+        field_tokens: Dict[str, int],
+    ) -> None:
+        """Aggregate one field's scrub summary/token counts into the totals."""
+        for key in self._PII_SUMMARY_KEYS:
+            summary[key] += field_summary.get(key, 0)
+        for token, count in (field_tokens or {}).items():
+            token_counts[token] = token_counts.get(token, 0) + count
+
+    def _record_pii_decision(
+        self,
+        raw_claim: str,
+        raw_evidence: List[str],
+        raw_context: Dict[str, Any],
+        summary: Dict[str, int],
+        token_counts: Dict[str, int],
+        model: str,
+    ) -> None:
+        """Persist aggregate scrub metadata (never text) when enabled.
+
+        Mirrors the /v1/ai/anonymize audit path: aggregate counts plus a
+        non-reversible SHA-256 fingerprint of the concatenated inputs.
+        Failures are logged, never raised, so an audit hiccup can't break a
+        verification.
+        """
+        try:
+            if not settings.pii_decisions_enabled:
+                return
+            from persistence.pii_decisions import (
+                PIIDecisionRecord,
+                PIIDecisionStore,
+                new_record_id,
+            )
+
+            raw_text = (
+                raw_claim
+                + "\n"
+                + "\n".join(raw_evidence)
+                + "\n"
+                + json.dumps(raw_context, sort_keys=True)
+            )
+            record = PIIDecisionRecord(
+                id=new_record_id(),
+                created_at=time.time(),
+                original_length=len(raw_text),
+                pii_summary=summary,
+                token_counts=token_counts,
+                text_fingerprint=hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+                model_version=model,
+            )
+            PIIDecisionStore(settings.pii_decisions_db_path).save_decision(
+                record,
+                settings.pii_decisions_retention_days,
+            )
+            logger.info(
+                "stored pii_decision id=%s total=%d",
+                record.id,
+                summary.get("total", 0),
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.error("pii_decision persistence failed: %s", exc)
 
     def _provider_attempt_order(self, provider_preference: str) -> List[str]:
         available: List[str] = []

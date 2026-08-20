@@ -2,12 +2,11 @@
   "name": "merkle-allowlist",
   "version": "0.1.0",
   "private": true,
+  "description": "Builds SHA-256 Merkle allowlist roots/proofs for the Soroban aid_escrow contract's claim_with_proof verifier.",
   "scripts": {
     "start": "node index.js"
   },
-  "dependencies": {
-    "ethers": "^5.7.2",
-    "merkletreejs": "^0.2.31",
-    "keccak256": "^1.0.6"
+  "engines": {
+    "node": ">=16"
   }
 }

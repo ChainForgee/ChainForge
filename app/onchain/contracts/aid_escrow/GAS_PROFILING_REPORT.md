@@ -121,6 +121,30 @@ Based on Soroban's current resource limits (approximately 100M CPU instructions 
 
 **Recommendation:** Use standard claims when possible. Merkle proofs only when necessary for access control.
 
+## Update: Recipient Secondary Index (issue #424)
+
+`get_recipient_package_count` / `list_recipient_packages` are now backed by a
+per-recipient secondary index (`rcnt` counter + `rpidx` entries) instead of a
+linear scan of the package-ID space. The index adds one small storage write per
+created package. **Measured on the current code (2026-08):**
+
+| Batch Size | Per-Package CPU | Per-Package Memory |
+|------------|-----------------|--------------------|
+| 10 | 82,152 | 14,599 |
+| 25 | 112,285 | 20,110 |
+| 50 | 164,236 | 30,187 |
+| 100 | 266,928 | 50,676 |
+| 200 | 469,938 | 91,820 |
+
+Design note: the index entries live in **instance storage** (`(rpidx, recipient,
+seq) -> package_id`). The initial implementation used persistent storage, which
+metered ~2-3x higher in Soroban SDK 23 and pushed the 200-package batch past the
+100M-instruction / 40MB test budget; instance storage keeps the 200-batch within
+budget (94M instructions / 18.4MB) and matches how `KEY_TOTAL_LOCKED` and the
+other counters are already stored. The safe-batch guidance below is unchanged:
+25-50 packages remains the recommended ceiling, and 200-package batches remain
+"Not Recommended" (now at ~94% of the CPU budget).
+
 ## Optimization Recommendations
 
 ### 1. Implement Pagination for Large Distributions

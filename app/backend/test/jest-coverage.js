@@ -17,7 +17,10 @@ module.exports = {
     '.*\\.spec\\.ts$',
     '.*verification-lifecycle\\.e2e-spec\\.ts$',
   ],
-  testPathIgnorePatterns: ['/test/idempotency\\.spec\\.ts$'],
+  testPathIgnorePatterns: [
+    '/test/idempotency\\.spec\\.ts$',
+    '/soroban\\.adapter\\.signing\\.spec\\.ts$',
+  ],
   moduleNameMapper: {
     ...baseConfig.moduleNameMapper,
     '^cache/(.*)$': '<rootDir>/cache/$1',

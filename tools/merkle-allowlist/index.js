@@ -1,61 +1,120 @@
+#!/usr/bin/env node
+/**
+ * merkle-allowlist — builds Merkle allowlist roots and proofs for the
+ * Soroban `aid_escrow` contract's `claim_with_proof` verifier.
+ *
+ * The contract (app/onchain/contracts/aid_escrow/src/lib.rs) verifies proofs
+ * with:
+ *
+ *   v1 leaf: sha256(<canonical Address string>)
+ *   v2 leaf: sha256(<canonical Address string> || <amount big-endian i128>)
+ *   pair:    sha256(sorted(left, right))     // sorted = byte-wise ascending
+ *   root:    the Merkle root built with that leaf and pairing rule
+ *
+ * Proofs are hex-encoded (64 lowercase hex chars, no 0x prefix), bottom-up,
+ * one sibling per tree level. The `merkle_root` and `merkle_root_expires_at`
+ * metadata values published on a package are read from the allowlist emitted
+ * here.
+ *
+ * This tool deliberately has ZERO dependencies: Node's `crypto` module only.
+ * No ethers, no merkletreejs, no keccak256 — the previous EVM-flavored
+ * implementation produced proofs no Soroban verifier could accept.
+ */
+
+'use strict';
+
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
-const { MerkleTree } = require('merkletreejs');
 
-const RPC_URL = process.env.TESTNET_RPC_URL;
-const CONTRACT_ADDRESS = process.env.MERKLE_CONTRACT_ADDRESS;
-const CONTRACT_ABI_PATH = process.env.MERKLE_CONTRACT_ABI_PATH; // optional
-const VERIFY_METHOD = process.env.MERKLE_VERIFY_METHOD || 'verify';
-const RETRIES = parseInt(process.env.MERKLE_RETRIES || '3', 10);
-const RETRY_DELAY_MS = parseInt(process.env.MERKLE_RETRY_DELAY_MS || '2000', 10);
-const OP_TIMEOUT_MS = parseInt(process.env.MERKLE_OP_TIMEOUT_MS || '60000', 10);
+const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest();
 
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
-async function withRetry(fn, desc) {
-  let lastErr;
-  for (let i = 0; i < RETRIES; i++) {
-    try {
-      const res = await Promise.race([
-        fn(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), OP_TIMEOUT_MS)),
-      ]);
-      return res;
-    } catch (err) {
-      lastErr = err;
-      console.error(`Attempt ${i + 1}/${RETRIES} failed for ${desc}: ${err.message}`);
-      if (i < RETRIES - 1) await sleep(RETRY_DELAY_MS);
-    }
-  }
-  throw lastErr;
+/**
+ * v1 Contract-compatible leaf: sha256 of the exact bytes `Address::to_string()`
+ * produces on-chain.
+ */
+function makeLeafV1(addressString) {
+  return sha256(Buffer.from(addressString, 'utf8'));
 }
 
 /**
- * Build a v2 Merkle leaf: sha256(address_string || amount_be_bytes).
+ * v2 Contract-compatible leaf: sha256(address_string || amount_be_bytes).
  *
  * The amount is encoded as a big-endian i128 (16 bytes), matching the
  * on-chain `hash_leaf_v2` function in `aid_escrow/src/lib.rs`.
  */
-function makeLeaf(entry) {
-  const address = entry.address.toLowerCase();
-  const amount = BigInt(entry.amount);
-
-  // amount as 16-byte big-endian i128
+function makeLeafV2(addressString, amount) {
   const amountBuf = Buffer.alloc(16);
-  // Write as unsigned big-endian; for negative amounts we would need two's
-  // complement, but amounts are always positive in this domain.
-  let val = amount;
+  let val = BigInt(amount);
   for (let i = 15; i >= 0; i--) {
     amountBuf[i] = Number(val & 0xFFn);
     val >>= 8n;
   }
-
-  const addrBuf = Buffer.from(address, 'utf8');
-  const leafInput = Buffer.concat([addrBuf, amountBuf]);
-
-  return '0x' + crypto.createHash('sha256').update(leafInput).digest('hex');
+  const addrBuf = Buffer.from(addressString, 'utf8');
+  return sha256(Buffer.concat([addrBuf, amountBuf]));
 }
+
+/**
+ * Creates a leaf based on the entry format.
+ * If entry has an `amount` field, uses v2 format; otherwise v1.
+ */
+function makeLeaf(entry) {
+  if (typeof entry === 'string') return makeLeafV1(entry);
+  if (entry.amount !== undefined) return makeLeafV2(entry.address, entry.amount);
+  return makeLeafV1(entry.address);
+}
+
+/** Contract-compatible pair combine: sort the two 32-byte hashes byte-wise
+ *  ascending, then hash left || right with sha256. */
+function hashPair(left, right) {
+  const [a, b] = Buffer.compare(left, right) <= 0 ? [left, right] : [right, left];
+  return sha256(Buffer.concat([a, b]));
+}
+
+/** Returns the tree root (Buffer) for the given allowlist leaves. */
+function buildRoot(leaves) {
+  let level = leaves.slice();
+  while (level.length > 1) {
+    const next = [];
+    for (let i = 0; i < level.length; i += 2) {
+      if (i + 1 < level.length) next.push(hashPair(level[i], level[i + 1]));
+      else next.push(level[i]); // odd leaf promoted unchanged
+    }
+    level = next;
+  }
+  return level[0];
+}
+
+/** Returns the proof (array of Buffers, bottom-up) for the leaf at `index`. */
+function buildProof(leaves, index) {
+  let level = leaves.slice();
+  let idx = index;
+  const proof = [];
+  while (level.length > 1) {
+    const next = [];
+    for (let i = 0; i < level.length; i += 2) {
+      if (i + 1 < level.length) {
+        next.push(hashPair(level[i], level[i + 1]));
+        if (i === idx) proof.push(level[i + 1]);
+        else if (i + 1 === idx) proof.push(level[i]);
+      } else {
+        next.push(level[i]);
+      }
+    }
+    idx = Math.floor(idx / 2);
+    level = next;
+  }
+  return proof;
+}
+
+/** Replicates the contract's `verify_merkle_proof_for_claimant` walk. */
+function verify(leaf, proof, root) {
+  let current = leaf;
+  for (const sibling of proof) current = hashPair(current, sibling);
+  return current.equals(root);
+}
+
+const toHex = (buf) => buf.toString('hex');
 
 function formatResult({ success, code, message, details }) {
   const out = { success: !!success };
@@ -64,83 +123,140 @@ function formatResult({ success, code, message, details }) {
   return out;
 }
 
-async function maybeCallOnchain(proof, leaf, root) {
-  if (!RPC_URL || !CONTRACT_ADDRESS || !CONTRACT_ABI_PATH) return { skipped: true };
-  const { ethers } = require('ethers');
-  const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
-  const abiRaw = fs.readFileSync(path.resolve(CONTRACT_ABI_PATH), 'utf8');
-  let abi;
-  try { abi = JSON.parse(abiRaw); } catch (e) { throw new Error('Invalid ABI JSON'); }
-  const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, provider);
-  if (typeof contract[VERIFY_METHOD] !== 'function') throw new Error('Verify method not found on contract ABI');
-  try {
-    const res = await withRetry(() => contract[VERIFY_METHOD](proof, leaf, root), 'contract.verify');
-    return { skipped: false, onchainResult: res };
-  } catch (err) {
-    return { skipped: false, onchainError: err.message };
-  }
-}
+function main() {
+  const samplePath = path.resolve(__dirname, 'sample_allowlist.json');
+  const sample = JSON.parse(fs.readFileSync(samplePath, 'utf8'));
 
-async function run() {
-  const sample = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'sample_allowlist.json')));
-  const leaves = sample.map((e) => Buffer.from(makeLeaf(e).slice(2), 'hex'));
-  const tree = new MerkleTree(leaves, (buf) => crypto.createHash('sha256').update(buf).digest(), { sortPairs: true });
-  const root = tree.getHexRoot();
-  console.log('ROOT:', root);
-
-  // Pick a valid entry
-  const entry = sample[0];
-  const leafHex = makeLeaf(entry);
-  const leafBuf = Buffer.from(leafHex.slice(2), 'hex');
-  const proof = tree.getHexProof(leafBuf);
-
-  // 1) Valid proof
-  const valid = tree.verify(proof, leafBuf, root);
-  console.log(JSON.stringify({ scenario: 'valid', result: formatResult({ success: valid, message: valid ? 'Proof valid' : 'Proof invalid' }), proof, leaf: leafHex, root }));
-
-  // Optionally call on-chain verify
-  if (CONTRACT_ADDRESS && CONTRACT_ABI_PATH) {
-    const onchain = await maybeCallOnchain(proof, leafHex, root);
-    console.log(JSON.stringify({ scenario: 'valid_onchain', onchain }));
+  if (!Array.isArray(sample) || sample.length === 0) {
+    throw new Error('sample_allowlist.json must be a non-empty array of { address } entries');
   }
 
-  // 2) Invalid proof path (tamper one proof element)
-  const badProofPath = proof.slice();
+  const hasAmount = sample.length > 0 && sample[0].amount !== undefined;
+  const leafVersion = hasAmount ? 'v2' : 'v1';
+
+  const leaves = sample.map((entry) => {
+    if (typeof entry.address !== 'string' || !/^[A-Z2-7]{56}$/.test(entry.address)) {
+      throw new Error(`Invalid Stellar address in allowlist: ${entry.address}`);
+    }
+    return makeLeaf(entry);
+  });
+
+  const root = buildRoot(leaves);
+  const rootHex = toHex(root);
+  console.log(`ROOT: ${rootHex}`);
+  console.log(`LEAF_VERSION: ${leafVersion}`);
+
+  // 1) Valid proof for the first entry.
+  const validIndex = 0;
+  const validLeaf = leaves[validIndex];
+  const proof = buildProof(leaves, validIndex);
+  const valid = verify(validLeaf, proof, root);
+  console.log(
+    JSON.stringify({
+      scenario: 'valid',
+      result: formatResult({
+        success: valid,
+        message: valid ? 'Proof valid' : 'Proof invalid',
+      }),
+      proof: proof.map(toHex),
+      leaf: toHex(validLeaf),
+      root: rootHex,
+    })
+  );
+
+  // 2) Invalid proof path (tamper one proof element).
+  const badProofPath = proof.map((b) => Buffer.from(b));
   if (badProofPath.length > 0) {
-    const first = badProofPath[0];
-    // flip last hex nibble deterministically
-    const tampered = first.slice(0, -1) + (first.slice(-1) === '0' ? '1' : '0');
-    badProofPath[0] = tampered;
+    const hex = badProofPath[0].toString('hex');
+    const tampered = hex.slice(0, -1) + (hex.slice(-1) === '0' ? '1' : '0');
+    badProofPath[0] = Buffer.from(tampered, 'hex');
   }
-  const invalidPathValid = tree.verify(badProofPath, leafBuf, root);
-  console.log(JSON.stringify({ scenario: 'invalid_proof_path', result: formatResult({ success: invalidPathValid, code: invalidPathValid ? 'OK' : 'INVALID_PROOF', message: invalidPathValid ? 'Unexpectedly valid' : 'Proof path invalid' }), proof: badProofPath, leaf: leafHex, root }));
+  const invalidPathValid = verify(validLeaf, badProofPath, root);
+  console.log(
+    JSON.stringify({
+      scenario: 'invalid_proof_path',
+      result: formatResult({
+        success: invalidPathValid,
+        code: invalidPathValid ? 'OK' : 'INVALID_PROOF',
+        message: invalidPathValid ? 'Unexpectedly valid' : 'Proof path invalid',
+      }),
+      proof: badProofPath.map(toHex),
+      leaf: toHex(validLeaf),
+      root: rootHex,
+    })
+  );
 
-  // 3) Wrong recipient (use a different address in leaf)
-  const wrongRecipient = { address: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', amount: entry.amount };
-  const wrongLeaf = makeLeaf(wrongRecipient);
-  const wrongLeafBuf = Buffer.from(wrongLeaf.slice(2), 'hex');
-  const wrongRecipientValid = tree.verify(proof, wrongLeafBuf, root);
-  console.log(JSON.stringify({ scenario: 'wrong_recipient', result: formatResult({ success: wrongRecipientValid, code: wrongRecipientValid ? 'OK' : 'WRONG_RECIPIENT', message: wrongRecipientValid ? 'Unexpectedly valid' : 'Proof does not match recipient' }), proof, leaf: wrongLeaf, root }));
+  // 3) Wrong recipient (a leaf for an address not in the tree).
+  const stranger = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+  const wrongLeaf = makeLeaf({ address: stranger, amount: hasAmount ? sample[0].amount : undefined });
+  const wrongRecipientValid = verify(wrongLeaf, proof, root);
+  console.log(
+    JSON.stringify({
+      scenario: 'wrong_recipient',
+      result: formatResult({
+        success: wrongRecipientValid,
+        code: wrongRecipientValid ? 'OK' : 'WRONG_RECIPIENT',
+        message: wrongRecipientValid ? 'Unexpectedly valid' : 'Proof does not match recipient',
+      }),
+      proof: proof.map(toHex),
+      leaf: toHex(wrongLeaf),
+      root: rootHex,
+    })
+  );
 
-  // 4) Wrong leaf (modify amount)
-  const wrongAmount = { address: entry.address, amount: (BigInt(entry.amount) + 99n).toString() };
-  const wrongLeaf2 = makeLeaf(wrongAmount);
-  const wrongLeaf2Buf = Buffer.from(wrongLeaf2.slice(2), 'hex');
-  const wrongLeafValid = tree.verify(proof, wrongLeaf2Buf, root);
-  console.log(JSON.stringify({ scenario: 'wrong_leaf', result: formatResult({ success: wrongLeafValid, code: wrongLeafValid ? 'OK' : 'WRONG_LEAF', message: wrongLeafValid ? 'Unexpectedly valid' : 'Leaf data mismatch' }), proof, leaf: wrongLeaf2, root }));
+  // 4) Wrong leaf (an in-tree address hashed with a non-canonical encoding,
+  //    e.g. the old amount-bound keccak-style layout — proves the leaf
+  //    format is enforced, not just the address).
+  const inTree = sample[0].address;
+  const wrongEncodingLeaf = sha256(Buffer.from(inTree + ':' + '1', 'utf8'));
+  const wrongLeafValid = verify(wrongEncodingLeaf, proof, root);
+  console.log(
+    JSON.stringify({
+      scenario: 'wrong_leaf',
+      result: formatResult({
+        success: wrongLeafValid,
+        code: wrongLeafValid ? 'OK' : 'WRONG_LEAF',
+        message: wrongLeafValid ? 'Unexpectedly valid' : 'Leaf data mismatch',
+      }),
+      proof: proof.map(toHex),
+      leaf: toHex(wrongEncodingLeaf),
+      root: rootHex,
+    })
+  );
 
-  // 5) Mismatched root (use a root from a different tree)
-  const altSample = sample.slice().reverse();
-  const altLeaves = altSample.map((e) => Buffer.from(makeLeaf(e).slice(2), 'hex'));
-  const altTree = new MerkleTree(altLeaves, (buf) => crypto.createHash('sha256').update(buf).digest(), { sortPairs: true });
-  const altRoot = altTree.getHexRoot();
-  const mismatchedValid = tree.verify(proof, leafBuf, altRoot);
-  console.log(JSON.stringify({ scenario: 'mismatched_root', result: formatResult({ success: mismatchedValid, code: mismatchedValid ? 'OK' : 'MISMATCHED_ROOT', message: mismatchedValid ? 'Unexpectedly valid' : 'Root mismatch' }), proof, leaf: leafHex, altRoot }));
+  // 5) Mismatched root (root of a different tree built from the same leaves
+  //    in a different order — with sorted-pair hashing this changes the root).
+  const altRoot = buildRoot(leaves.slice().reverse());
+  const mismatchedValid = verify(validLeaf, proof, altRoot);
+  console.log(
+    JSON.stringify({
+      scenario: 'mismatched_root',
+      result: formatResult({
+        success: mismatchedValid,
+        code: mismatchedValid ? 'OK' : 'MISMATCHED_ROOT',
+        message: mismatchedValid ? 'Unexpectedly valid' : 'Root mismatch',
+      }),
+      proof: proof.map(toHex),
+      leaf: toHex(validLeaf),
+      altRoot: toHex(altRoot),
+    })
+  );
+
+  // 6) Full proof dump for every entry (useful for publishing `merkle_root`
+  //    metadata and distributing per-recipient proofs).
+  const entries = sample.map((entry, i) => ({
+    address: entry.address,
+    ...(hasAmount ? { amount: entry.amount } : {}),
+    proof: buildProof(leaves, i).map(toHex),
+  }));
+  console.log(JSON.stringify({ scenario: 'proofs', entries }));
 
   console.log('Merkle allowlist checks complete');
 }
 
-run().catch((err) => {
-  console.error('Unhandled error:', err.message);
+try {
+  main();
+} catch (err) {
+  console.error('Error:', err.message);
   process.exitCode = 1;
-});
+}

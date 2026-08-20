@@ -49,7 +49,7 @@ fn test_integration_flow() {
     assert_eq!(package.amount, UNIT);
     assert_eq!(package.status, PackageStatus::Created);
 
-    client.claim(&pkg_id);
+    client.claim(&pkg_id, &recipient);
     assert_eq!(token_client.balance(&recipient), UNIT);
     assert_eq!(token_client.balance(&contract_id), 4 * UNIT);
 }
@@ -119,7 +119,7 @@ fn test_error_cases() {
     assert_eq!(res1, Err(Ok(Error::InvalidAmount)));
 
     // Case 2: Package not found
-    let res2 = client.try_claim(&999);
+    let res2 = client.try_claim(&999, &admin);
     assert_eq!(res2, Err(Ok(Error::PackageNotFound)));
 }
 
@@ -371,16 +371,17 @@ fn test_extend_expiration_claimed_package() {
     token_admin_client.mint(&admin, &UNIT);
     client.fund(&token_client.address, &admin, &UNIT);
 
+    let recipient = Address::generate(&env);
     client.create_package(
         &admin,
         &1,
-        &Address::generate(&env),
+        &recipient,
         &UNIT,
         &token_client.address,
         &9999999,
         &Map::new(&env),
     );
-    client.claim(&1);
+    client.claim(&1, &recipient);
     assert_eq!(
         client.try_extend_expiration(&1, &10),
         Err(Ok(Error::PackageNotActive))

@@ -86,10 +86,14 @@ jobs:
           NODE_ENV: development
         run: npm run spec:export
 
+      - name: Regenerate frontend client types
+        working-directory: app/frontend
+        run: pnpm generate:api
+
       - name: Check for Prisma schema without migration
         run: chmod +x app/backend/scripts/check-prisma-migration.sh && app/backend/scripts/check-prisma-migration.sh
 
       - name: Check for OpenAPI spec drift
         run: |
-          git diff --exit-code app/frontend/openapi.json || \
-            (echo "ERROR: openapi.json is out of date. Run 'npm run spec:export' in app/backend and commit app/frontend/openapi.json." && exit 1)
+          git diff --exit-code app/frontend/openapi.json app/frontend/src/lib/generated/api.ts || \
+            (echo "ERROR: openapi.json or api.ts is out of date. Run 'npm run spec:export' in app/backend, then 'pnpm generate:api' in app/frontend, and commit both files." && exit 1)

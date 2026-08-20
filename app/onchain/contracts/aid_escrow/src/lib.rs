@@ -25,6 +25,10 @@ use soroban_sdk::{
     Bytes, Env, IntoVal, Map, String, Symbol, Val, Vec,
 };
 
+mod delegate;
+
+pub use delegate::DelegateHistory;
+
 // --- Storage Keys ---
 const KEY_ADMIN: Symbol = symbol_short!("admin");
 const KEY_TOTAL_LOCKED: Symbol = symbol_short!("locked"); // Map<Address, i128>
@@ -32,6 +36,13 @@ const KEY_VERSION: Symbol = symbol_short!("version");
 const KEY_PKG_COUNTER: Symbol = symbol_short!("pkg_cnt");
 const KEY_CONFIG: Symbol = symbol_short!("config");
 const KEY_PKG_IDX: Symbol = symbol_short!("pkg_idx"); // Aggregation index counter
+const KEY_RECIPIENT_COUNT: Symbol = symbol_short!("rcnt"); // Map<Address, u64> — packages per recipient
+
+// Secondary index: instance (KEY_RECIPIENT_IDX, recipient, seq) -> u64 package_id.
+// seq is a per-recipient ordinal assigned at creation, so recipient queries never
+// scan the global ID space (see issue #424). Instance storage is used because
+// persistent writes meter far higher in this SDK (see GAS_PROFILING_REPORT.md).
+const KEY_RECIPIENT_IDX: Symbol = symbol_short!("rpidx");
 const KEY_DISTRIBUTORS: Symbol = symbol_short!("dstrbtrs"); // Map<Address, bool>
 const KEY_PAUSED: Symbol = symbol_short!("paused");
 const KEY_PAUSE_CREATE: Symbol = symbol_short!("p_create");
@@ -55,6 +66,11 @@ const DEFAULT_ADMIN_DEADLINE: u64 = 7 * 24 * 60 * 60; // 7 days in seconds
 /// represent a whole unit).  `validate_token` rejects anything above
 /// this with `Error::InvalidTokenDecimals`.  See issue #235.
 pub const MAX_TOKEN_DECIMALS: u32 = 38;
+
+/// Upper bound for `list_recipient_packages` page sizes.  The `limit` argument
+/// is clamped to this value so a single read call can never request a scan
+/// window large enough to exhaust Soroban's per-call read budget (issue #424).
+pub const MAX_RECIPIENT_PAGE_SIZE: u32 = 100;
 
 /// Initial value of `Config.min_decimals` written by `init()` when no
 /// admin has called `set_config()` yet.  0 disables the floor check, so
@@ -109,6 +125,18 @@ pub struct Aggregates {
     pub total_committed: i128,
     pub total_claimed: i128,
     pub total_expired_cancelled: i128,
+}
+
+/// One page of `list_recipient_packages` results.
+///
+/// `next_cursor` is the per-recipient index ordinal to pass as `cursor` on the
+/// next call; when it equals the recipient's total package count there are no
+/// further pages.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecipientPackagesPage {
+    pub ids: Vec<u64>,
+    pub next_cursor: u64,
 }
 
 #[contracterror]
@@ -763,6 +791,9 @@ impl AidEscrow {
 
         env.storage().persistent().set(&key, &package);
 
+        // Maintain the recipient → package-id secondary index (issue #424).
+        Self::index_recipient_package(&env, &recipient, id);
+
         // Increment running committed total for the token
         Self::add_to_status_totals(&env, &token, PackageStatus::Created, amount);
 
@@ -840,6 +871,14 @@ impl AidEscrow {
         let mut counter: u64 = env.storage().instance().get(&KEY_PKG_COUNTER).unwrap_or(0);
         // Read the current aggregation index
         let mut idx: u64 = env.storage().instance().get(&KEY_PKG_IDX).unwrap_or(0);
+        // Recipient index bookkeeping is hoisted into memory and persisted once
+        // after the loop: re-serializing the per-recipient count map on every
+        // iteration would be O(n^2) and blow the read budget on large batches.
+        let mut recipient_count_map: Map<Address, u64> = env
+            .storage()
+            .instance()
+            .get(&KEY_RECIPIENT_COUNT)
+            .unwrap_or(Map::new(&env));
 
         let created_at = env.ledger().timestamp();
         let expires_at = created_at + expires_in;
@@ -892,6 +931,14 @@ impl AidEscrow {
 
             env.storage().persistent().set(&key, &package);
 
+            // Maintain the recipient → package-id secondary index (issue #424).
+            // Only the small per-recipient entry is written per package; the
+            // count map is updated in memory and persisted after the loop.
+            let seq = recipient_count_map.get(recipient.clone()).unwrap_or(0);
+            let rpidx_key = (KEY_RECIPIENT_IDX, recipient.clone(), seq);
+            env.storage().instance().set(&rpidx_key, &id);
+            recipient_count_map.set(recipient.clone(), seq + 1);
+
             // Track running committed total
             Self::add_to_status_totals(&env, &token, PackageStatus::Created, amount);
 
@@ -921,6 +968,9 @@ impl AidEscrow {
         env.storage().instance().set(&KEY_TOTAL_LOCKED, &locked_map);
         env.storage().instance().set(&KEY_PKG_COUNTER, &counter);
         env.storage().instance().set(&KEY_PKG_IDX, &idx);
+        env.storage()
+            .instance()
+            .set(&KEY_RECIPIENT_COUNT, &recipient_count_map);
 
         // Emit batch event
         BatchCreatedEvent {
@@ -935,8 +985,12 @@ impl AidEscrow {
 
     // --- Recipient Actions ---
 
-    /// Recipient claims the package.
-    pub fn claim(env: Env, id: u64) -> Result<(), Error> {
+    /// Claims the package on behalf of `claimer`.
+    ///
+    /// `claimer` must be either the package recipient or a registered,
+    /// unexpired delegate (see `set_delegate`).  Funds always pay out to the
+    /// package `recipient`, even when a delegate authorises the claim.
+    pub fn claim(env: Env, id: u64, claimer: Address) -> Result<(), Error> {
         Self::check_action_paused(&env, symbol_short!("claim"))?;
         let key = (symbol_short!("pkg"), id);
         let mut package: Package = env
@@ -964,10 +1018,23 @@ impl AidEscrow {
             return Err(Error::InvalidProof);
         }
 
-        package.recipient.require_auth();
+        // Only the recipient or a registered, unexpired delegate may claim.
+        if !delegate::is_authorised_claimer(&env, id, &package.recipient, &claimer) {
+            return Err(Error::NotAuthorized);
+        }
+        claimer.require_auth();
+
         let payout_recipient = package.recipient.clone();
 
-        Self::finalize_claim(&env, &key, &mut package, id, &payout_recipient, now)
+        Self::finalize_claim(
+            &env,
+            &key,
+            &mut package,
+            id,
+            &payout_recipient,
+            &claimer,
+            now,
+        )
     }
 
     /// Claim a package guarded by an optional Merkle allowlist.
@@ -1037,15 +1104,65 @@ impl AidEscrow {
                     &leaf_version,
                     package.amount,
                 )?;
-                Self::finalize_claim(&env, &key, &mut package, id, &claimant, now)
+                Self::finalize_claim(&env, &key, &mut package, id, &claimant, &claimant, now)
             }
             None => {
                 if claimant != package.recipient {
                     return Err(Error::NotAuthorized);
                 }
-                Self::finalize_claim(&env, &key, &mut package, id, &claimant, now)
+                Self::finalize_claim(&env, &key, &mut package, id, &claimant, &claimant, now)
             }
         }
+    }
+
+    // --- Delegate (recovery) Support ---
+
+    /// Admin-only. Registers `delegate` as the recovery address for
+    /// `package_id`, optionally with an `expires_at` deadline (0 = never).
+    ///
+    /// An unexpired delegate may authorise a claim on the package on behalf
+    /// of the recipient via `claim(id, claimer)`.  `set_delegate` is rejected
+    /// once the package is `Claimed`, and the delegate cannot equal the
+    /// recipient.  Delegate assignments are recorded in an append-only audit
+    /// trail readable via `get_delegate_history`.
+    ///
+    /// # Errors
+    /// - `Error::NotAuthorized` - caller is not the admin
+    /// - `Error::PackageNotFound` - package does not exist
+    /// - `Error::PackageNotActive` - package already claimed
+    /// - `Error::InvalidState` - delegate equals recipient, or `expires_at` is in the past
+    pub fn set_delegate(
+        env: Env,
+        package_id: u64,
+        delegate: Address,
+        expires_at: u64,
+    ) -> Result<(), Error> {
+        let admin = Self::get_admin(env.clone())?;
+        delegate::set_delegate_with_expiry(&env, &admin, package_id, &delegate, expires_at)
+    }
+
+    /// Returns the registered delegate for `package_id`, if any.
+    /// Returns `None` if no delegate is set or the delegate has expired.
+    pub fn get_delegate(env: Env, package_id: u64) -> Option<Address> {
+        delegate::get_delegate(&env, package_id)
+    }
+
+    /// Returns the registered delegate and its expiry for `package_id`.
+    /// Returns `None` if no delegate is set.
+    pub fn get_delegate_info(env: Env, package_id: u64) -> Option<(Address, Option<u64>)> {
+        delegate::get_delegate_info(&env, package_id)
+    }
+
+    /// Returns the full delegate audit trail for `package_id`.
+    pub fn get_delegate_history(env: Env, package_id: u64) -> Vec<DelegateHistory> {
+        delegate::get_delegate_history(&env, package_id)
+    }
+
+    /// Admin-only. Removes expired delegates from storage, reclaiming rent.
+    /// Returns the number of delegates cleaned up.
+    pub fn cleanup_expired_delegates(env: Env) -> Result<u32, Error> {
+        let admin = Self::get_admin(env.clone())?;
+        delegate::cleanup_expired_delegates(&env, &admin)
     }
 
     // --- Admin Actions ---
@@ -1166,11 +1283,12 @@ impl AidEscrow {
             .get(&key)
             .ok_or(Error::PackageNotFound)?;
 
-        // Can only refund if Expired or Cancelled.
-        // If Created, must Revoke first. If Claimed, impossible.
-        // If Refunded, impossible.
-        let should_unlock_locked =
-            package.status == PackageStatus::Created || package.status == PackageStatus::Expired;
+        // Only a `Created` package still holds its amount in KEY_TOTAL_LOCKED.
+        // A package auto-expired on the claim path has already had its locked
+        // funds released and its aggregates moved, so it must NOT be unlocked
+        // again here (that would double-decrement). Cancelled packages were
+        // already unlocked in `revoke`.
+        let should_unlock_locked = package.status == PackageStatus::Created;
 
         // Capture whether the package was in Created status before any mutations.
         // Packages already in Expired or Cancelled are already counted in
@@ -1190,8 +1308,9 @@ impl AidEscrow {
             return Err(Error::InvalidState);
         }
 
-        // If Cancelled, funds were already unlocked in `revoke`.
-        // Expired packages are unlocked only after a successful refund transfer.
+        // Cancelled packages were already unlocked in `revoke`; auto-expired
+        // packages were already unlocked in `expire_if_past_due`. Only a
+        // `Created` package is unlocked here (see `should_unlock_locked`).
 
         // Transfer Contract -> Admin
         Self::transfer_token(
@@ -1471,6 +1590,50 @@ impl AidEscrow {
         env.storage().instance().set(&KEY_TOTAL_LOCKED, &locked_map);
     }
 
+    /// Permissionless. Idempotently transitions a past-due `Created` package
+    /// to `Expired`, releasing its locked funds and moving its aggregate totals
+    /// from `Created` to the expired/cancelled bucket.
+    ///
+    /// Returns `Ok` whether the package was expired, is still claimable, or was
+    /// already in a terminal state (idempotent). The transition must be a
+    /// successful call because Soroban reverts storage writes when a function
+    /// returns an error, so a late `claim` cannot both transition the package
+    /// and return `Error::PackageExpired` in the same invocation.
+    pub fn expire_if_past_due(env: Env, id: u64) -> Result<(), Error> {
+        let key = (symbol_short!("pkg"), id);
+        let mut package: Package = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::PackageNotFound)?;
+
+        let now = env.ledger().timestamp();
+
+        // `expires_at == 0` means the package never expires.
+        if package.expires_at == 0 || now <= package.expires_at {
+            return Ok(());
+        }
+        // Only a `Created` package can transition; an already-terminal package
+        // has either been paid out or already released its funds.
+        if package.status != PackageStatus::Created {
+            return Ok(());
+        }
+
+        package.status = PackageStatus::Expired;
+        env.storage().persistent().set(&key, &package);
+
+        Self::decrement_locked(&env, &package.token, package.amount);
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Created,
+            -package.amount,
+        );
+        Self::add_to_status_totals(&env, &package.token, PackageStatus::Expired, package.amount);
+
+        Ok(())
+    }
+
     /// Validates a token contract against the configured decimals policy.
     ///
     /// # Behaviour
@@ -1565,6 +1728,7 @@ impl AidEscrow {
         package: &mut Package,
         package_id: u64,
         payout_recipient: &Address,
+        actor: &Address,
         now: u64,
     ) -> Result<(), Error> {
         Self::transfer_token(
@@ -1586,11 +1750,16 @@ impl AidEscrow {
         Self::add_to_status_totals(env, &package.token, PackageStatus::Created, -package.amount);
         Self::add_to_status_totals(env, &package.token, PackageStatus::Claimed, package.amount);
 
+        // A claimed package is terminal: drop any registered delegate so it
+        // can never be (re)assigned after funds move, and record the removal
+        // in the delegate audit trail (no-op when no delegate was set).
+        delegate::clear_delegate(env, package_id, actor);
+
         PackageClaimed {
             package_id,
             recipient: payout_recipient.clone(),
             amount: package.amount,
-            actor: payout_recipient.clone(),
+            actor: actor.clone(),
             timestamp: now,
         }
         .publish(env);
@@ -1893,61 +2062,85 @@ impl AidEscrow {
 
     /// Returns the number of stored packages assigned to `recipient`.
     ///
-    /// This naive helper scans all package IDs from `0..package_counter`, treating the
-    /// counter as an upper bound over assigned IDs and skipping gaps.
+    /// O(1): reads the per-recipient counter maintained by
+    /// [`index_recipient_package`], so the cost is independent of the global
+    /// package counter and of how many packages other recipients own.
     pub fn get_recipient_package_count(env: Env, recipient: Address) -> u64 {
-        let count: u64 = env.storage().instance().get(&KEY_PKG_COUNTER).unwrap_or(0);
-        let mut matches = 0;
-
-        for id in 0..count {
-            let key = (symbol_short!("pkg"), id);
-            if let Some(package) = env.storage().persistent().get::<_, Package>(&key) {
-                if package.recipient == recipient {
-                    matches += 1;
-                }
-            }
-        }
-
-        matches
+        let count_map: Map<Address, u64> = env
+            .storage()
+            .instance()
+            .get(&KEY_RECIPIENT_COUNT)
+            .unwrap_or(Map::new(&env));
+        count_map.get(recipient).unwrap_or(0)
     }
 
     /// Lists package IDs for a specific recipient with pagination.
     ///
+    /// Enumerates the recipient's secondary index, so pages contain only that
+    /// recipient's packages (no skipped matches and no empty pages while
+    /// matches remain), regardless of how large the global ID space is.
+    ///
     /// # Arguments
     /// * `recipient` - The address to filter packages by
-    /// * `cursor` - Starting position for pagination (0-indexed)
-    /// * `limit` - Maximum number of results to return
+    /// * `cursor` - Per-recipient index ordinal of the first package to return
+    ///   (the `next_cursor` from the previous page, or `0` for the first page)
+    /// * `limit` - Maximum number of results to return; clamped to
+    ///   [`MAX_RECIPIENT_PAGE_SIZE`]
     ///
     /// # Returns
-    /// A Vec<u64> containing package IDs that belong to the recipient,
-    /// starting from the cursor position and limited by the limit parameter.
+    /// A [`RecipientPackagesPage`] containing up to `limit` package IDs and a
+    /// `next_cursor` for the following page. When `next_cursor` equals the
+    /// recipient's total package count, no further pages exist.
     pub fn list_recipient_packages(
         env: Env,
         recipient: Address,
         cursor: u64,
         limit: u32,
-    ) -> Vec<u64> {
-        let package_counter: u64 = env.storage().instance().get(&KEY_PKG_COUNTER).unwrap_or(0);
-        let mut result: Vec<u64> = Vec::new(&env);
+    ) -> RecipientPackagesPage {
+        let count = Self::get_recipient_package_count(env.clone(), recipient.clone());
+        let limit = u64::from(limit.min(MAX_RECIPIENT_PAGE_SIZE));
+        let mut ids: Vec<u64> = Vec::new(&env);
 
-        // Calculate the end position: cursor + limit or package_counter, whichever comes first
-        let end_pos = if cursor.saturating_add(limit as u64) > package_counter {
-            package_counter
+        let next_cursor = if cursor >= count {
+            // Exhausted: nothing to return, and report the end so the caller
+            // can stop paginating.
+            count
         } else {
-            cursor.saturating_add(limit as u64)
-        };
-
-        // Iterate from cursor to end_pos
-        for id in cursor..end_pos {
-            let key = (symbol_short!("pkg"), id);
-            if let Some(package) = env.storage().persistent().get::<_, Package>(&key) {
-                if package.recipient == recipient {
-                    result.push_back(id);
+            let end = cursor.saturating_add(limit).min(count);
+            for seq in cursor..end {
+                let idx_key = (KEY_RECIPIENT_IDX, recipient.clone(), seq);
+                if let Some(id) = env.storage().instance().get::<_, u64>(&idx_key) {
+                    ids.push_back(id);
                 }
             }
-        }
+            end
+        };
 
-        result
+        RecipientPackagesPage { ids, next_cursor }
+    }
+
+    /// Appends `package_id` to `recipient`'s secondary index.
+    ///
+    /// Writes one instance-storage entry `(KEY_RECIPIENT_IDX, recipient, seq)`
+    /// and bumps the per-recipient counter. Called from every package-creation
+    /// path so the index is always consistent with `(pkg, id)` records; a
+    /// failed creation reverts the whole transaction, so no orphan entries can
+    /// be observed.
+    fn index_recipient_package(env: &Env, recipient: &Address, package_id: u64) {
+        let mut count_map: Map<Address, u64> = env
+            .storage()
+            .instance()
+            .get(&KEY_RECIPIENT_COUNT)
+            .unwrap_or(Map::new(env));
+        let seq = count_map.get(recipient.clone()).unwrap_or(0);
+
+        let idx_key = (KEY_RECIPIENT_IDX, recipient.clone(), seq);
+        env.storage().instance().set(&idx_key, &package_id);
+
+        count_map.set(recipient.clone(), seq + 1);
+        env.storage()
+            .instance()
+            .set(&KEY_RECIPIENT_COUNT, &count_map);
     }
 }
 
@@ -2053,7 +2246,8 @@ mod tests {
         );
 
         let packages = client.list_recipient_packages(&recipient1, &0, &10);
-        assert_eq!(packages.len(), 2);
+        assert_eq!(packages.ids.len(), 2);
+        assert_eq!(packages.next_cursor, 2);
     }
 
     #[test]
@@ -2083,7 +2277,8 @@ mod tests {
         }
 
         let page = client.list_recipient_packages(&recipient, &0, &3);
-        assert_eq!(page.len(), 3);
+        assert_eq!(page.ids.len(), 3);
+        assert_eq!(page.next_cursor, 3);
     }
 
     #[test]

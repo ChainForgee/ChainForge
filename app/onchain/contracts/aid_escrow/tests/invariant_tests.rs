@@ -53,7 +53,7 @@ fn test_core_accounting_invariants() {
     assert!(balance >= locked, "Contract must be solvent");
 
     // 3. Claim Invariant: Total Claimed + Current Balance == Total Funded
-    client.claim(&1);
+    client.claim(&1, &recipient);
 
     let total_claimed = client.get_total_claimed(&token_address);
 

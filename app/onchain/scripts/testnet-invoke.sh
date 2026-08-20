@@ -32,7 +32,7 @@ Actions:
   initialize --admin <address>
   create-package --operator <address> --id <u64> --recipient <address> \
     --amount <i128> --token <address> [--expires-at <u64>] [--metadata <map>]
-  claim --id <u64>
+  claim --id <u64> --claimer <address>
   get-package --id <u64>
   view-status --id <u64>
   get-admin
@@ -42,7 +42,7 @@ Examples:
   ./scripts/testnet-invoke.sh initialize --admin GADMIN...
   ./scripts/testnet-invoke.sh create-package --operator GADMIN... --id 1 \
     --recipient GRECIPIENT... --amount 10000000 --token CTOKEN...
-  ./scripts/testnet-invoke.sh claim --id 1
+  ./scripts/testnet-invoke.sh claim --id 1 --claimer GRECIPIENT...
   ./scripts/testnet-invoke.sh get-package --id 1
   ./scripts/testnet-invoke.sh view-status --id 1
 USAGE
@@ -271,10 +271,15 @@ case "$ACTION" in
 
     claim)
         package_id=""
+        claimer=""
         while [ "$#" -gt 0 ]; do
             case "$1" in
                 --id)
                     package_id="${2:-}"
+                    shift 2
+                    ;;
+                --claimer)
+                    claimer="${2:-}"
                     shift 2
                     ;;
                 --contract-id|--source|--rpc-url)
@@ -287,7 +292,8 @@ case "$ACTION" in
             esac
         done
         require_value "--id" "$package_id"
-        run_contract claim --id "$package_id"
+        require_value "--claimer" "$claimer"
+        run_contract claim --id "$package_id" --claimer "$claimer"
         ;;
 
     get-package|view-status)

@@ -183,7 +183,7 @@ fn run_sequence(ops: Vec<Op>) {
                     // the withdrawal regardless of which accounting key the
                     // contract uses internally.
                     if let Ok(Ok(pkg)) = client.try_get_package(&id) {
-                        if client.try_claim(&id).is_ok() {
+                        if client.try_claim(&id, &recipient).is_ok() {
                             total_withdrawn += pkg.amount;
                             active_pkg_ids.retain(|&x| x != id);
                         }
@@ -521,7 +521,7 @@ proptest! {
         prop_assert_eq!(token.balance(&contract_id), amount);
 
         // Claim
-        client.claim(&1);
+        client.claim(&1, &recipient);
 
         let total_claimed    = client.get_total_claimed(&token_addr);
         let contract_balance = token.balance(&contract_id);

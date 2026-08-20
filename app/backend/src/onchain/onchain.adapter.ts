@@ -69,6 +69,82 @@ export interface ClaimAidPackageParams {
   recipientAddress: string;
 }
 
+/**
+ * Client-signing seam: parameters for building an unsigned, simulated
+ * `claim` transaction. The returned XDR carries the Soroban auth entry the
+ * recipient must sign; the envelope source is the backend admin account, so
+ * fees are sponsored by the operator (no XLM required from the recipient).
+ */
+export interface BuildUnsignedClaimTxParams {
+  packageId: string;
+  recipientAddress: string;
+}
+
+export interface BuildUnsignedClaimTxResult {
+  packageId: string;
+  recipientAddress: string;
+  /**
+   * Base64 XDR of the unsigned envelope. The client signs the Soroban auth
+   * entries inside it with the recipient key and hands the result back to
+   * `submitSignedTx`.
+   */
+  transactionXdr: string;
+  /** Hash of the unsigned envelope, hex-encoded (informational). */
+  transactionHash: string;
+  /** Unix seconds after which the envelope should be treated as stale. */
+  expiresAt: number;
+  timestamp: Date;
+}
+
+/**
+ * Client-signing seam: parameters for building an unsigned, simulated
+ * `create_package` transaction whose Soroban auth entry must be signed by the
+ * operator (distributor) — enabling package creation for a non-admin
+ * `operatorAddress`.
+ */
+export interface BuildUnsignedCreatePackageParams {
+  operatorAddress: string;
+  packageId: string;
+  recipientAddress: string;
+  amount: string;
+  tokenAddress: string;
+  expiresAt: number;
+  metadata?: Record<string, string>;
+}
+
+export interface BuildUnsignedCreatePackageResult {
+  packageId: string;
+  operatorAddress: string;
+  transactionXdr: string;
+  transactionHash: string;
+  expiresAt: number;
+  timestamp: Date;
+}
+
+/**
+ * Client-signing seam: submit an envelope whose Soroban auth entries were
+ * signed off-chain by the required account (recipient for `claim`, operator
+ * for `create_package`). The adapter verifies the auth-entry signatures,
+ * signs the envelope with the admin keypair (fee sponsorship), then submits
+ * and confirms the transaction.
+ */
+export interface SubmitSignedTxParams {
+  /** Base64 XDR of the client-signed envelope. */
+  signedXdr: string;
+  /**
+   * G… public key that must have signed the auth entries. When set, any auth
+   * entry signed by a different account is rejected before submission.
+   */
+  expectedSigner?: string;
+}
+
+export interface SubmitSignedTxResult {
+  transactionHash: string;
+  status: 'success' | 'failed';
+  timestamp: Date;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ClaimAidPackageResult {
   packageId: string;
   transactionHash: string;
@@ -232,6 +308,32 @@ export interface OnchainAdapter {
   claimAidPackage(
     params: ClaimAidPackageParams,
   ): Promise<ClaimAidPackageResult>;
+
+  /**
+   * Build an unsigned, simulated `claim` transaction whose Soroban auth entry
+   * requires the recipient's signature. The recipient signs the returned XDR
+   * and hands it back to {@link submitSignedTx}.
+   */
+  buildUnsignedClaimTx(
+    params: BuildUnsignedClaimTxParams,
+  ): Promise<BuildUnsignedClaimTxResult>;
+
+  /**
+   * Build an unsigned, simulated `create_package` transaction whose Soroban
+   * auth entry requires the operator's signature — the distributor-created
+   * package path for a non-admin `operatorAddress`.
+   */
+  buildUnsignedCreatePackageTx(
+    params: BuildUnsignedCreatePackageParams,
+  ): Promise<BuildUnsignedCreatePackageResult>;
+
+  /**
+   * Submit a client-signed transaction envelope. Auth-entry signatures are
+   * verified against the required account, the envelope is signed by the
+   * admin keypair (fee sponsorship), and the transaction is submitted and
+   * confirmed before the result is returned.
+   */
+  submitSignedTx(params: SubmitSignedTxParams): Promise<SubmitSignedTxResult>;
 
   /**
    * Disburse an aid package by admin

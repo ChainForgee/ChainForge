@@ -99,7 +99,7 @@
   ["src/onchain/onchain.adapter.ts",100,100,100,100],
   ["src/onchain/onchain.processor.ts",-33,-37,-3,-33],
   ["src/onchain/onchain.service.ts",-12,-8,-4,-12],
-  ["src/onchain/soroban.adapter.ts",-197,-100,-44,-201],
+  ["src/onchain/soroban.adapter.ts",-210,-110,-44,-215],
   ["src/onchain/utils/contract-value.ts",-14,-18,-2,-14],
   ["src/onchain/utils/retry-with-timeout.ts",-14,-7,-4,-16],
   ["src/onchain/utils/soroban-error.mapper.ts",-30,-36,-1,-30],

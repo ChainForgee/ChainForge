@@ -114,6 +114,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/health/dependencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dependency health with on-chain latency
+         * @description Reports the time taken for an on-chain RPC call as onchain_rpc_ms. Status is "degraded" if it exceeds 5s.
+         */
+        get: operations["HealthController_dependencies_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health/error": {
         parameters: {
             query?: never;
@@ -143,142 +163,6 @@ export interface paths {
          * @description Performs a read-only contract call to verify connectivity to Soroban RPC and contract functionality. Requires authentication.
          */
         get: operations["HealthController_onchainHealth_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/ledger/backfill": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Trigger ledger backfill job
-         * @description Start a backfill job to process a range of ledgers and populate missing ledger entries. Idempotent - can be run repeatedly without duplicating data.
-         */
-        post: operations["LedgerAdminController_triggerBackfill_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/ledger/backfill/{jobId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get backfill job status
-         * @description Retrieve the current status of a backfill job.
-         */
-        get: operations["LedgerAdminController_getBackfillStatus_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/ledger/reconcile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Trigger ledger reconciliation job
-         * @description Start a reconciliation job to compare on-chain data against stored records and detect discrepancies.
-         */
-        post: operations["LedgerAdminController_triggerReconciliation_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/ledger/reconcile/{jobId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get reconciliation job status
-         * @description Retrieve the current status and report of a reconciliation job.
-         */
-        get: operations["LedgerAdminController_getReconciliationStatus_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/jobs/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get status of all background job queues
-         * @description Retrieves the count of waiting, active, completed, failed, and delayed jobs for all system queues.
-         */
-        get: operations["JobsController_getStatus_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/jobs/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get overall health of background job queues
-         * @description Checks if any core queues are degraded (too many waiting or failed jobs).
-         */
-        get: operations["JobsController_getHealth_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/metrics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["PrometheusController_index_v1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -365,6 +249,146 @@ export interface paths {
          * @description Receives notifications from the AI service when background tasks complete.
          */
         post: operations["AidController_handleTaskWebhook_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onchain/aid-escrow/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an aid package
+         * @description Creates a new aid package with specified recipient, amount, and expiration. Only authorized operators can create packages.
+         */
+        post: operations["AidEscrowController_createAidPackage_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onchain/aid-escrow/packages/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Batch create aid packages
+         * @description Creates multiple aid packages for multiple recipients in a single transaction. More efficient than individual creation.
+         */
+        post: operations["AidEscrowController_batchCreateAidPackages_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onchain/aid-escrow/packages/{id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim an aid package
+         * @description Claims an aid package as the recipient, transferring the funds to their wallet. Can only be claimed once.
+         */
+        post: operations["AidEscrowController_claimAidPackage_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onchain/aid-escrow/packages/{id}/disburse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disburse an aid package
+         * @description Disburses an aid package from the admin/operator, transferring funds to the recipient. Admin-only action.
+         */
+        post: operations["AidEscrowController_disburseAidPackage_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onchain/aid-escrow/packages/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get aid package details
+         * @description Retrieves the full details of an aid package including status, amount, and expiration.
+         */
+        get: operations["AidEscrowController_getAidPackage_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onchain/aid-escrow/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get aid package statistics
+         * @description Retrieves aggregated statistics for aid packages by token, including total committed, claimed, and expired amounts.
+         */
+        get: operations["AidEscrowController_getAidPackageStats_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onchain/aid-escrow/transactions/{hash}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get transaction status
+         * @description Polls Soroban RPC for the status of a transaction by its hash. Returns a normalized status: pending, succeeded, failed, or unknown.
+         */
+        get: operations["AidEscrowController_getTransactionStatus_v1"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -779,40 +803,20 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/notifications/outbox": {
+    "/api/v1/csp-report": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * List stuck notification outbox records
-         * @description Returns all NotificationOutbox records in pending or enqueued status whose scheduledFor is more than 10 minutes in the past.
-         */
-        get: operations["OutboxController_listStuck_v1"];
+        get?: never;
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/notifications/outbox/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
         /**
-         * Get a single notification outbox record
-         * @description Returns the NotificationOutbox record for the given id.
+         * Receive CSP violation reports
+         * @description Endpoint to receive and log Content Security Policy violations.
          */
-        get: operations["OutboxController_getOne_v1"];
-        put?: never;
-        post?: never;
+        post: operations["CspReportController_handleCspReport_v1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -896,6 +900,23 @@ export interface paths {
         };
         /** Trigger a ForbiddenException */
         get: operations["TestErrorController_getForbidden_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/test-error/service-unavailable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Trigger a ServiceUnavailableException */
+        get: operations["TestErrorController_getServiceUnavailable_v1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1204,46 +1225,6 @@ export interface paths {
         patch: operations["ClaimsController_archive_v1"];
         trace?: never;
     };
-    "/api/v1/claims/{id}/receipt": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get claim receipt
-         * @description Generates a shareable receipt for the specified claim.
-         */
-        get: operations["ClaimsController_getReceipt_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/claims/{id}/receipt/share": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Share claim receipt
-         * @description Generates and optionally sends the claim receipt via email or SMS.
-         */
-        post: operations["ClaimsController_shareReceipt_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/claims/{id}/notes": {
         parameters: {
             query?: never;
@@ -1328,6 +1309,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/claims/{id}/receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get claim receipt
+         * @description Generates a shareable receipt for the specified claim.
+         */
+        get: operations["ClaimsController_getReceipt_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/claims/{id}/receipt/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Share claim receipt
+         * @description Generates and optionally sends the claim receipt via email or SMS.
+         */
+        post: operations["ClaimsController_shareReceipt_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/claims/export": {
         parameters: {
             query?: never;
@@ -1340,6 +1361,86 @@ export interface paths {
          * @description Exports claim records as CSV with support for date range, status, organization, token, and pagination filters. Excludes sensitive recipient data (recipientRef is encrypted and not exported).
          */
         get: operations["ClaimsController_exportClaims_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/outbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List stuck notification outbox records
+         * @description Returns all NotificationOutbox records in pending or enqueued status whose scheduledFor is more than 10 minutes in the past.
+         */
+        get: operations["OutboxController_listStuck_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/outbox/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a single notification outbox record
+         * @description Returns the NotificationOutbox record for the given id.
+         */
+        get: operations["OutboxController_getOne_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get status of all background job queues
+         * @description Retrieves the count of waiting, active, completed, failed, and delayed jobs for all system queues.
+         */
+        get: operations["JobsController_getStatus_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get overall health of background job queues
+         * @description Checks if any core queues are degraded (too many waiting or failed jobs).
+         */
+        get: operations["JobsController_getHealth_v1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1408,146 +1509,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/onchain/aid-escrow/packages": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Create an aid package
-         * @description Creates a new aid package with specified recipient, amount, and expiration. Only authorized operators can create packages.
-         */
-        post: operations["AidEscrowController_createAidPackage_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/onchain/aid-escrow/packages/batch": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Batch create aid packages
-         * @description Creates multiple aid packages for multiple recipients in a single transaction. More efficient than individual creation.
-         */
-        post: operations["AidEscrowController_batchCreateAidPackages_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/onchain/aid-escrow/packages/{id}/claim": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Claim an aid package
-         * @description Claims an aid package as the recipient, transferring the funds to their wallet. Can only be claimed once.
-         */
-        post: operations["AidEscrowController_claimAidPackage_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/onchain/aid-escrow/packages/{id}/disburse": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Disburse an aid package
-         * @description Disburses an aid package from the admin/operator, transferring funds to the recipient. Admin-only action.
-         */
-        post: operations["AidEscrowController_disburseAidPackage_v1"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/onchain/aid-escrow/packages/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get aid package details
-         * @description Retrieves the full details of an aid package including status, amount, and expiration.
-         */
-        get: operations["AidEscrowController_getAidPackage_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/onchain/aid-escrow/stats": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get aid package statistics
-         * @description Retrieves aggregated statistics for aid packages by token, including total committed, claimed, and expired amounts.
-         */
-        get: operations["AidEscrowController_getAidPackageStats_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/onchain/aid-escrow/transactions/{hash}/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get transaction status
-         * @description Polls Soroban RPC for the status of a transaction by its hash. Returns a normalized status: pending, succeeded, failed, or unknown.
-         */
-        get: operations["AidEscrowController_getTransactionStatus_v1"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/api-keys": {
         parameters: {
             query?: never;
@@ -1597,6 +1558,77 @@ export interface paths {
         put?: never;
         /** Revoke an API key */
         post: operations["ApiKeysController_revoke_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue or refresh OAuth-compatible JWTs
+         * @description Supports client_credentials using an existing ChainForge API key as client_secret, and refresh_token. No password login flow exists in this backend.
+         */
+        post: operations["TokenController_token_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/userinfo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return claims for the current JWT principal */
+        get: operations["TokenController_userinfo_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/introspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Introspect a JWT using RFC 7662 active/inactive shape */
+        post: operations["TokenController_introspect_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke a JWT by adding its jti to Redis */
+        post: operations["TokenController_revoke_v1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2320,6 +2352,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/ledger/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger ledger backfill job
+         * @description Start a backfill job to process a range of ledgers and populate missing ledger entries. Idempotent - can be run repeatedly without duplicating data.
+         */
+        post: operations["LedgerAdminController_triggerBackfill_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/ledger/backfill/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get backfill job status
+         * @description Retrieve the current status of a backfill job.
+         */
+        get: operations["LedgerAdminController_getBackfillStatus_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/ledger/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger ledger reconciliation job
+         * @description Start a reconciliation job to compare on-chain data against stored records and detect discrepancies.
+         */
+        post: operations["LedgerAdminController_triggerReconciliation_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/ledger/reconcile/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get reconciliation job status
+         * @description Retrieve the current status and report of a reconciliation job.
+         */
+        get: operations["LedgerAdminController_getReconciliationStatus_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["PrometheusController_index_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2369,6 +2497,71 @@ export interface components {
              * @example 2024-03-24T10:30:00Z
              */
             completedAt?: string;
+        };
+        CreateAidPackageDto: {
+            /**
+             * @description Unique identifier for the package
+             * @example pkg_123456789
+             */
+            packageId: string;
+            /**
+             * @description Stellar address of the aid recipient
+             * @example GBUQWP3BOUZX34ULNQG23RQ6F4BFXWBTRSE53XSTE23JMCVOCJGXVSVZ
+             */
+            recipientAddress: string;
+            /**
+             * @description Amount in stroops (i128 as string to preserve precision)
+             * @example 1000000000
+             */
+            amount: string;
+            /**
+             * @description Stellar token address
+             * @example GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN
+             */
+            tokenAddress: string;
+            /**
+             * @description Unix timestamp when the package expires
+             * @example 1704067200
+             */
+            expiresAt: number;
+            /**
+             * @description Optional metadata as key-value pairs
+             * @example {
+             *       "campaign_ref": "campaign-123",
+             *       "region": "LATAM"
+             *     }
+             */
+            metadata?: Record<string, never>;
+        };
+        BatchCreateAidPackagesDto: {
+            /**
+             * @description Array of recipient Stellar addresses
+             * @example [
+             *       "GBUQWP3BOUZX34ULNQG23RQ6F4BFXWBTRSE53XSTE23JMCVOCJGXVSVZ",
+             *       "GA5ZSEJYB37JRC5AVCIA5MOP4GZ5DA47EL5QRUVLYEK2OOABEXVR5CV7"
+             *     ]
+             */
+            recipientAddresses: string[];
+            /**
+             * @description Array of amounts (in stroops, as strings)
+             * @example [
+             *       "1000000000",
+             *       "500000000"
+             *     ]
+             */
+            amounts: string[];
+            /**
+             * @description Stellar token address
+             * @example GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN
+             */
+            tokenAddress: string;
+            /**
+             * @description Duration in seconds from now until expiration
+             * @example 2592000
+             */
+            expiresIn: number;
+            /** @description Optional metadata as key-value pairs */
+            metadata?: Record<string, never>;
         };
         StartVerificationDto: {
             /**
@@ -2554,6 +2747,40 @@ export interface components {
              */
             expiresAt?: string;
         };
+        CancelClaimDto: {
+            /**
+             * @description ID of the operator performing the cancellation.
+             * @example operator-uuid
+             */
+            operatorId: string;
+            /**
+             * @description Human-readable reason for cancellation.
+             * @example Recipient relocated; package no longer applicable.
+             */
+            reason?: string;
+        };
+        ReissueClaimDto: {
+            /**
+             * @description ID of the operator performing the reissue.
+             * @example operator-uuid
+             */
+            operatorId: string;
+            /**
+             * @description Override amount for the replacement package. Defaults to the original amount when omitted.
+             * @example 750
+             */
+            amount?: number;
+            /**
+             * @description Override recipient reference for the replacement package.
+             * @example recipient-ref-new
+             */
+            recipientRef?: string;
+            /**
+             * @description Human-readable reason for the reissue.
+             * @example Corrected amount after field verification.
+             */
+            reason?: string;
+        };
         ClaimReceiptDto: {
             /**
              * @description Unique claim identifier
@@ -2632,40 +2859,6 @@ export interface components {
             /** @description Text representation of receipt for sharing */
             text: string;
         };
-        CancelClaimDto: {
-            /**
-             * @description ID of the operator performing the cancellation.
-             * @example operator-uuid
-             */
-            operatorId: string;
-            /**
-             * @description Human-readable reason for cancellation.
-             * @example Recipient relocated; package no longer applicable.
-             */
-            reason?: string;
-        };
-        ReissueClaimDto: {
-            /**
-             * @description ID of the operator performing the reissue.
-             * @example operator-uuid
-             */
-            operatorId: string;
-            /**
-             * @description Override amount for the replacement package. Defaults to the original amount when omitted.
-             * @example 750
-             */
-            amount?: number;
-            /**
-             * @description Override recipient reference for the replacement package.
-             * @example recipient-ref-new
-             */
-            recipientRef?: string;
-            /**
-             * @description Human-readable reason for the reissue.
-             * @example Corrected amount after field verification.
-             */
-            reason?: string;
-        };
         BreakdownEntry: {
             /** @example USDC */
             label: string;
@@ -2738,71 +2931,6 @@ export interface components {
             /** @example 2026-03-30T10:00:00Z */
             computedAt: string;
         };
-        CreateAidPackageDto: {
-            /**
-             * @description Unique identifier for the package
-             * @example pkg_123456789
-             */
-            packageId: string;
-            /**
-             * @description Stellar address of the aid recipient
-             * @example GBUQWP3BOUZX34ULNQG23RQ6F4BFXWBTRSE53XSTE23JMCVOCJGXVSVZ
-             */
-            recipientAddress: string;
-            /**
-             * @description Amount in stroops (i128 as string to preserve precision)
-             * @example 1000000000
-             */
-            amount: string;
-            /**
-             * @description Stellar token address
-             * @example GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN
-             */
-            tokenAddress: string;
-            /**
-             * @description Unix timestamp when the package expires
-             * @example 1704067200
-             */
-            expiresAt: number;
-            /**
-             * @description Optional metadata as key-value pairs
-             * @example {
-             *       "campaign_ref": "campaign-123",
-             *       "region": "LATAM"
-             *     }
-             */
-            metadata?: Record<string, never>;
-        };
-        BatchCreateAidPackagesDto: {
-            /**
-             * @description Array of recipient Stellar addresses
-             * @example [
-             *       "GBUQWP3BOUZX34ULNQG23RQ6F4BFXWBTRSE53XSTE23JMCVOCJGXVSVZ",
-             *       "GA5ZSEJYB37JRC5AVCIA5MOP4GZ5DA47EL5QRUVLYEK2OOABEXVR5CV7"
-             *     ]
-             */
-            recipientAddresses: string[];
-            /**
-             * @description Array of amounts (in stroops, as strings)
-             * @example [
-             *       "1000000000",
-             *       "500000000"
-             *     ]
-             */
-            amounts: string[];
-            /**
-             * @description Stellar token address
-             * @example GATEMHCCKCY67ZUCKTROYN24ZYT5GK4EQZ5LKG3FZTSZ3NYNEJBBENSN
-             */
-            tokenAddress: string;
-            /**
-             * @description Duration in seconds from now until expiration
-             * @example 2592000
-             */
-            expiresIn: number;
-            /** @description Optional metadata as key-value pairs */
-            metadata?: Record<string, never>;
-        };
         CreateApiKeyDto: {
             /**
              * @description Role associated with this API key.
@@ -2827,6 +2955,27 @@ export interface components {
              * @example compromised
              */
             reason?: string;
+        };
+        TokenRequestDto: {
+            /**
+             * @description OAuth grant type. This backend has no password login flow, so JWT issuance is based on existing API-key client credentials.
+             * @enum {string}
+             */
+            grant_type: "client_credentials" | "refresh_token";
+            /** @description Optional client identifier. API-key records are validated by client_secret. */
+            client_id?: string;
+            /** @description Existing ChainForge API key used as the OAuth client secret. */
+            client_secret?: string;
+            /** @description Refresh token, required when grant_type=refresh_token. */
+            refresh_token?: string;
+        };
+        TokenIntrospectionDto: {
+            /** @description JWT access or refresh token to introspect. */
+            token: string;
+        };
+        TokenRevocationDto: {
+            /** @description JWT access or refresh token to revoke. */
+            token: string;
         };
         SessionStepDefinitionDto: {
             /** @description Name of the step */
@@ -3089,6 +3238,31 @@ export interface operations {
             };
         };
     };
+    HealthController_dependencies_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dependency health retrieved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description On-chain dependency is down. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     HealthController_triggerError_v1: {
         parameters: {
             query?: never;
@@ -3125,238 +3299,6 @@ export interface operations {
             };
             /** @description On-chain health check failed */
             503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LedgerAdminController_triggerBackfill_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @description Starting ledger sequence number */
-                    startLedger: number;
-                    /** @description Ending ledger sequence number */
-                    endLedger: number;
-                    /** @description Optional campaign ID to filter */
-                    campaignId?: string;
-                    /** @description Number of ledgers to process per batch (default: 100) */
-                    batchSize?: number;
-                };
-            };
-        };
-        responses: {
-            /** @description Backfill job queued successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Invalid request parameters. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized - valid JWT token required. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Access denied - admin role required. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LedgerAdminController_getBackfillStatus_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Job ID returned from triggerBackfill */
-                jobId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Backfill status retrieved successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized - valid JWT token required. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Access denied - admin role required. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LedgerAdminController_triggerReconciliation_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @description Starting ledger sequence number */
-                    startLedger: number;
-                    /** @description Ending ledger sequence number */
-                    endLedger: number;
-                    /** @description Optional campaign ID to filter */
-                    campaignId?: string;
-                    /** @description Threshold percentage for amount mismatch (default: 5) */
-                    thresholdPercent?: number;
-                };
-            };
-        };
-        responses: {
-            /** @description Reconciliation job queued successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Invalid request parameters. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized - valid JWT token required. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Access denied - admin role required. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LedgerAdminController_getReconciliationStatus_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Job ID returned from triggerReconciliation */
-                jobId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Reconciliation status retrieved successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized - valid JWT token required. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Access denied - admin role required. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    JobsController_getStatus_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Queue statuses retrieved successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    JobsController_getHealth_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PrometheusController_index_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3506,6 +3448,281 @@ export interface operations {
             };
             /** @description Invalid webhook payload. */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AidEscrowController_createAidPackage_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAidPackageDto"];
+            };
+        };
+        responses: {
+            /** @description Package created successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid input parameters. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Blockchain transaction failed. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AidEscrowController_batchCreateAidPackages_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchCreateAidPackagesDto"];
+            };
+        };
+        responses: {
+            /** @description Packages created successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid input or mismatched arrays. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Blockchain transaction failed. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AidEscrowController_claimAidPackage_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Package claimed successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Package not found or not claimable. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Package does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Blockchain transaction failed. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AidEscrowController_disburseAidPackage_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Package disbursed successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Package not found or not disbursable. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Package does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Blockchain transaction failed. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AidEscrowController_getAidPackage_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Package details retrieved successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Package not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Failed to retrieve package. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AidEscrowController_getAidPackageStats_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Statistics retrieved successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid token address. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Failed to retrieve statistics. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AidEscrowController_getTransactionStatus_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hash: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Transaction status retrieved successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid transaction hash. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Transaction not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Failed to retrieve transaction status. */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4315,7 +4532,7 @@ export interface operations {
             };
         };
     };
-    OutboxController_listStuck_v1: {
+    CspReportController_handleCspReport_v1: {
         parameters: {
             query?: never;
             header?: never;
@@ -4324,63 +4541,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Stuck outbox records returned. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Missing or invalid API key. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Insufficient role (requires admin or operator). */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    OutboxController_getOne_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Outbox record returned. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Missing or invalid API key. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Insufficient role (requires admin or operator). */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Outbox record not found. */
-            404: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4471,6 +4632,24 @@ export interface operations {
         responses: {
             /** @description Forbidden error triggered. */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TestErrorController_getServiceUnavailable_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Service unavailable error triggered. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5105,75 +5284,6 @@ export interface operations {
             };
         };
     };
-    ClaimsController_getReceipt_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Claim receipt generated successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ClaimReceiptDto"];
-                };
-            };
-            /** @description The specified claim was not found. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    ClaimsController_shareReceipt_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SendReceiptShareDto"];
-            };
-        };
-        responses: {
-            /** @description Receipt generated and sharing initiated successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ClaimShareResponseDto"];
-                };
-            };
-            /** @description Invalid share parameters. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The specified claim was not found. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     ClaimsController_getNotes_v1: {
         parameters: {
             query?: never;
@@ -5369,6 +5479,75 @@ export interface operations {
             };
         };
     };
+    ClaimsController_getReceipt_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Claim receipt generated successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimReceiptDto"];
+                };
+            };
+            /** @description The specified claim was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ClaimsController_shareReceipt_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendReceiptShareDto"];
+            };
+        };
+        responses: {
+            /** @description Receipt generated and sharing initiated successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimShareResponseDto"];
+                };
+            };
+            /** @description Invalid share parameters. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The specified claim was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ClaimsController_exportClaims_v1: {
         parameters: {
             query?: {
@@ -5413,6 +5592,116 @@ export interface operations {
             };
             /** @description Access denied - operator or admin role required. */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    OutboxController_listStuck_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stuck outbox records returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid API key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient role (requires admin or operator). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    OutboxController_getOne_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Outbox record returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid API key. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient role (requires admin or operator). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Outbox record not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    JobsController_getStatus_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queue statuses retrieved successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    JobsController_getHealth_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5490,281 +5779,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["GeoJsonFeatureCollection"];
                 };
-            };
-        };
-    };
-    AidEscrowController_createAidPackage_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateAidPackageDto"];
-            };
-        };
-        responses: {
-            /** @description Package created successfully. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Invalid input parameters. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Blockchain transaction failed. */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AidEscrowController_batchCreateAidPackages_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BatchCreateAidPackagesDto"];
-            };
-        };
-        responses: {
-            /** @description Packages created successfully. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Invalid input or mismatched arrays. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Blockchain transaction failed. */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AidEscrowController_claimAidPackage_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Package claimed successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Package not found or not claimable. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Package does not exist. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Blockchain transaction failed. */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AidEscrowController_disburseAidPackage_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Package disbursed successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Package not found or not disbursable. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Package does not exist. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Blockchain transaction failed. */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AidEscrowController_getAidPackage_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Package details retrieved successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Package not found. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Failed to retrieve package. */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AidEscrowController_getAidPackageStats_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Statistics retrieved successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Invalid token address. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Failed to retrieve statistics. */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    AidEscrowController_getTransactionStatus_v1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                hash: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Transaction status retrieved successfully. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Invalid transaction hash. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Transaction not found. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Failed to retrieve transaction status. */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
@@ -5873,6 +5887,87 @@ export interface operations {
         responses: {
             /** @description API key revoked. */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TokenController_token_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Token pair issued. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TokenController_userinfo_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TokenController_introspect_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenIntrospectionDto"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    TokenController_revoke_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenRevocationDto"];
+            };
+        };
+        responses: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6848,6 +6943,201 @@ export interface operations {
         };
     };
     SandboxController_resetSeed_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LedgerAdminController_triggerBackfill_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Starting ledger sequence number */
+                    startLedger: number;
+                    /** @description Ending ledger sequence number */
+                    endLedger: number;
+                    /** @description Optional campaign ID to filter */
+                    campaignId?: string;
+                    /** @description Number of ledgers to process per batch (default: 100) */
+                    batchSize?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Backfill job queued successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid request parameters. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized - valid JWT token required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access denied - admin role required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LedgerAdminController_getBackfillStatus_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job ID returned from triggerBackfill */
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backfill status retrieved successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized - valid JWT token required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access denied - admin role required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LedgerAdminController_triggerReconciliation_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Starting ledger sequence number */
+                    startLedger: number;
+                    /** @description Ending ledger sequence number */
+                    endLedger: number;
+                    /** @description Optional campaign ID to filter */
+                    campaignId?: string;
+                    /** @description Threshold percentage for amount mismatch (default: 5) */
+                    thresholdPercent?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Reconciliation job queued successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid request parameters. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized - valid JWT token required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access denied - admin role required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LedgerAdminController_getReconciliationStatus_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job ID returned from triggerReconciliation */
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reconciliation status retrieved successfully. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized - valid JWT token required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access denied - admin role required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    PrometheusController_index_v1: {
         parameters: {
             query?: never;
             header?: never;

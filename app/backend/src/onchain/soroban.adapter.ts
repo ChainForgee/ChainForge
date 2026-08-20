@@ -9,6 +9,11 @@ import {
   Keypair,
   BASE_FEE,
   xdr,
+  Address,
+  StrKey,
+  Operation,
+  hash,
+  Transaction,
 } from '@stellar/stellar-sdk';
 import {
   OnchainAdapter,
@@ -40,6 +45,12 @@ import {
   GetTransactionStatusParams,
   GetTransactionStatusResult,
   TxStatus,
+  BuildUnsignedClaimTxParams,
+  BuildUnsignedClaimTxResult,
+  BuildUnsignedCreatePackageParams,
+  BuildUnsignedCreatePackageResult,
+  SubmitSignedTxParams,
+  SubmitSignedTxResult,
 } from './onchain.adapter';
 import { SorobanErrorMapper } from './utils/soroban-error.mapper';
 import { withRetryTimeout } from './utils/retry-with-timeout';
@@ -47,6 +58,13 @@ import { toContractString, toStringRecord } from './utils/contract-value';
 
 @Injectable()
 export class SorobanAdapter implements OnchainAdapter {
+  /**
+   * Client-signing envelopes are stamped with a best-effort freshness window;
+   * the on-chain `signature_expiration_ledger` (set by the RPC simulation) is
+   * the authoritative expiry, enforced by the network.
+   */
+  private static readonly UNSIGNED_TX_TTL_SECONDS = 300;
+
   private readonly logger = new Logger(SorobanAdapter.name);
   private readonly contractId: string;
   private readonly rpcUrl: string;
@@ -132,11 +150,17 @@ export class SorobanAdapter implements OnchainAdapter {
     return `testnet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
-  private async submitContractOp(
+  /**
+   * Build the contract-call transaction, simulate it against the RPC server,
+   * and assemble the prepared (unsigned) envelope. The envelope source is the
+   * admin account, so the auth entries returned by the simulation demand the
+   * *caller's* signature (recipient / operator) while the admin sponsors fees.
+   */
+  private async buildPreparedTransaction(
     method: string,
     args: xdr.ScVal[],
     correlationId: string,
-  ): Promise<{ hash: string; result: unknown }> {
+  ): Promise<Transaction> {
     const server = this.getServer();
     const kp = this.getKeypair();
     const contract = new Contract(this.contractId);
@@ -176,12 +200,22 @@ export class SorobanAdapter implements OnchainAdapter {
       throw new Error(`Contract simulation error: ${errorMsg}`);
     }
 
-    const preparedTx = SorobanRpc.assembleTransaction(tx, simulation).build();
-    preparedTx.sign(kp);
+    return SorobanRpc.assembleTransaction(tx, simulation).build();
+  }
+
+  /**
+   * Send a prepared transaction, poll until confirmed, and return the hash and
+   * decoded return value. Fails loudly instead of fabricating success.
+   */
+  private async sendAndConfirm(
+    preparedTx: Transaction,
+    correlationId: string,
+  ): Promise<{ hash: string; result: unknown }> {
+    const server = this.getServer();
 
     const sendResult = await withRetryTimeout(
       () => server.sendTransaction(preparedTx),
-      `sendTransaction(${method})`,
+      `sendTransaction(${correlationId})`,
       correlationId,
       {},
       this.logger,
@@ -199,7 +233,7 @@ export class SorobanAdapter implements OnchainAdapter {
           }
           return getResult;
         },
-        `pollTransaction(${method})`,
+        `pollTransaction(${correlationId})`,
         correlationId,
         {
           maxRetries: 10,
@@ -225,6 +259,21 @@ export class SorobanAdapter implements OnchainAdapter {
     throw new Error(
       `Transaction submission failed with status: ${sendResult.status}`,
     );
+  }
+
+  private async submitContractOp(
+    method: string,
+    args: xdr.ScVal[],
+    correlationId: string,
+  ): Promise<{ hash: string; result: unknown }> {
+    const kp = this.getKeypair();
+    const preparedTx = await this.buildPreparedTransaction(
+      method,
+      args,
+      correlationId,
+    );
+    preparedTx.sign(kp);
+    return this.sendAndConfirm(preparedTx, correlationId);
   }
 
   private async simulateReadOnly(
@@ -480,9 +529,18 @@ export class SorobanAdapter implements OnchainAdapter {
     const cid = this.correlationId();
     this.logger.log(`[${cid}] claimAidPackage id=${params.packageId}`);
 
+    // The contract ABI is claim(id, claimer): the claimer argument was
+    // missing here, so the admin-signed claim never matched the entrypoint.
+    // This path only succeeds on-chain when the admin *is* the recipient;
+    // otherwise the contract's recipient.require_auth() rejects it, which is
+    // the honest outcome — use buildUnsignedClaimTx + submitSignedTx for a
+    // real recipient-signed claim.
     const { hash } = await this.submitContractOp(
       'claim',
-      [this.scvU64(parseInt(params.packageId, 10))],
+      [
+        this.scvU64(parseInt(params.packageId, 10)),
+        this.scvAddress(params.recipientAddress),
+      ],
       cid,
     );
 
@@ -497,6 +555,234 @@ export class SorobanAdapter implements OnchainAdapter {
         recipient: params.recipientAddress,
       },
     };
+  }
+
+  async buildUnsignedClaimTx(
+    params: BuildUnsignedClaimTxParams,
+  ): Promise<BuildUnsignedClaimTxResult> {
+    this.ensureConfigured();
+    const cid = this.correlationId();
+    this.logger.log(
+      `[${cid}] buildUnsignedClaimTx id=${params.packageId} recipient=${params.recipientAddress}`,
+    );
+
+    const tx = await this.buildPreparedTransaction(
+      'claim',
+      [
+        this.scvU64(parseInt(params.packageId, 10)),
+        this.scvAddress(params.recipientAddress),
+      ],
+      cid,
+    );
+
+    return {
+      packageId: params.packageId,
+      recipientAddress: params.recipientAddress,
+      transactionXdr: tx.toXDR(),
+      transactionHash: tx.hash().toString('hex'),
+      expiresAt:
+        Math.floor(Date.now() / 1000) + SorobanAdapter.UNSIGNED_TX_TTL_SECONDS,
+      timestamp: new Date(),
+    };
+  }
+
+  async buildUnsignedCreatePackageTx(
+    params: BuildUnsignedCreatePackageParams,
+  ): Promise<BuildUnsignedCreatePackageResult> {
+    this.ensureConfigured();
+    const cid = this.correlationId();
+    this.logger.log(
+      `[${cid}] buildUnsignedCreatePackageTx id=${params.packageId} operator=${params.operatorAddress}`,
+    );
+
+    const metadata = params.metadata ?? {};
+    const tx = await this.buildPreparedTransaction(
+      'create_package',
+      [
+        this.scvAddress(params.operatorAddress),
+        this.scvU64(parseInt(params.packageId, 10)),
+        this.scvAddress(params.recipientAddress),
+        this.scvI128(params.amount),
+        this.scvAddress(params.tokenAddress),
+        this.scvU64(params.expiresAt),
+        this.scvMap(metadata),
+      ],
+      cid,
+    );
+
+    return {
+      packageId: params.packageId,
+      operatorAddress: params.operatorAddress,
+      transactionXdr: tx.toXDR(),
+      transactionHash: tx.hash().toString('hex'),
+      expiresAt:
+        Math.floor(Date.now() / 1000) + SorobanAdapter.UNSIGNED_TX_TTL_SECONDS,
+      timestamp: new Date(),
+    };
+  }
+
+  async submitSignedTx(
+    params: SubmitSignedTxParams,
+  ): Promise<SubmitSignedTxResult> {
+    this.ensureConfigured();
+    const cid = this.correlationId();
+    this.logger.log(
+      `[${cid}] submitSignedTx expectedSigner=${params.expectedSigner ?? 'unset'}`,
+    );
+
+    const kp = this.getKeypair();
+
+    let tx: Transaction;
+    try {
+      tx = TransactionBuilder.fromXDR(
+        params.signedXdr,
+        this.networkPassphrase,
+      ) as Transaction;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `submitSignedTx: signedXdr is not a valid transaction envelope (${msg})`,
+      );
+    }
+
+    if (tx.operations.length !== 1) {
+      throw new Error(
+        'submitSignedTx: expected exactly one operation in the envelope',
+      );
+    }
+    const operation = tx.operations[0];
+    if (operation.type !== 'invokeHostFunction') {
+      throw new Error(
+        'submitSignedTx: expected an invokeHostFunction (contract call) operation',
+      );
+    }
+
+    // Reject before submission if the Soroban auth entries were not signed by
+    // the account the contract requires (recipient / distributor).
+    this.verifySorobanAuthEntries(operation, params.expectedSigner);
+
+    // Fee sponsorship: the envelope source is the admin account, so signing it
+    // with the admin keypair both authorises the transaction and pays fees.
+    tx.sign(kp);
+
+    const { hash } = await this.sendAndConfirm(tx, cid);
+
+    return {
+      transactionHash: hash,
+      status: 'success',
+      timestamp: new Date(),
+      metadata: {
+        contractId: this.contractId,
+        signer: params.expectedSigner,
+      },
+    };
+  }
+
+  /**
+   * Verify that every Soroban auth entry on the operation carries a valid
+   * account signature from the account the entry requires — and, when
+   * `expectedSigner` is set, that this account is exactly the expected one.
+   * Mirrors the preimage construction the SDK's `authorizeEntry` uses to sign.
+   */
+  private verifySorobanAuthEntries(
+    operation: Operation.InvokeHostFunction,
+    expectedSigner?: string,
+  ): void {
+    const entries = operation.auth ?? [];
+    if (entries.length === 0) {
+      throw new Error(
+        'submitSignedTx: the transaction carries no Soroban auth entries to verify',
+      );
+    }
+
+    for (const entry of entries) {
+      const creds = entry.credentials();
+      if (
+        creds.switch() !==
+        xdr.SorobanCredentialsType.sorobanCredentialsAddress()
+      ) {
+        throw new Error(
+          'submitSignedTx: unsupported auth credential type (expected an account signature)',
+        );
+      }
+      const addrAuth = creds.address();
+      if (addrAuth.signature().switch() === xdr.ScValType.scvVoid()) {
+        throw new Error(
+          'submitSignedTx: auth entry is unsigned — the required signer never signed',
+        );
+      }
+
+      const sigList = this.authEntrySignatureList(addrAuth);
+      if (sigList.length === 0) {
+        throw new Error(
+          'submitSignedTx: auth entry signature payload is malformed',
+        );
+      }
+
+      const publicKeyBytes = Buffer.from(sigList[0].public_key);
+      const signer = StrKey.encodeEd25519PublicKey(publicKeyBytes);
+      const required = Address.fromScAddress(addrAuth.address()).toString();
+
+      if (required !== signer) {
+        throw new Error(
+          `submitSignedTx: auth entry signed by ${signer} but the contract requires ${required}`,
+        );
+      }
+      if (expectedSigner && signer !== expectedSigner) {
+        throw new Error(
+          `submitSignedTx: auth entry signed by ${signer}, expected ${expectedSigner}`,
+        );
+      }
+      if (!this.verifyAuthEntrySignature(entry, signer)) {
+        throw new Error(
+          `submitSignedTx: auth entry signature is not cryptographically valid for ${signer}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Decode the `[{public_key, signature}]` vec a signed `SorobanAddressCredentials`
+   * carries. Returns an empty list when the ScVal is missing or malformed.
+   */
+  private authEntrySignatureList(
+    addrAuth: xdr.SorobanAddressCredentials,
+  ): Array<{ public_key: Uint8Array; signature: Uint8Array }> {
+    const value = scValToNative(addrAuth.signature()) as unknown;
+    if (!Array.isArray(value) || value.length === 0) {
+      return [];
+    }
+    return value as Array<{
+      public_key: Uint8Array;
+      signature: Uint8Array;
+    }>;
+  }
+
+  private verifyAuthEntrySignature(
+    entry: xdr.SorobanAuthorizationEntry,
+    signer: string,
+  ): boolean {
+    const addrAuth = entry.credentials().address();
+    const networkId = hash(Buffer.from(this.networkPassphrase));
+    const preimage = xdr.HashIdPreimage.envelopeTypeSorobanAuthorization(
+      new xdr.HashIdPreimageSorobanAuthorization({
+        networkId,
+        nonce: addrAuth.nonce(),
+        invocation: entry.rootInvocation(),
+        signatureExpirationLedger: addrAuth.signatureExpirationLedger(),
+      }),
+    );
+    const payload = hash(preimage.toXDR());
+    const sigList = this.authEntrySignatureList(addrAuth);
+    if (sigList.length === 0) {
+      return false;
+    }
+    const signatureBytes = Buffer.from(sigList[0].signature);
+    try {
+      return Keypair.fromPublicKey(signer).verify(payload, signatureBytes);
+    } catch {
+      return false;
+    }
   }
 
   async disburseAidPackage(

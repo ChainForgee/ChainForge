@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react';
 import { ErrorState } from '@/components/ErrorState';
-import * as Sentry from '@sentry/nextjs';
 import Link from 'next/link';
 
 export default function Error({
@@ -13,8 +12,6 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Report error to Sentry (or any configured error tracker)
-    Sentry.captureException(error);
     if (process.env.NODE_ENV !== 'production') {
       console.error('Error boundary caught an error.', error);
     }

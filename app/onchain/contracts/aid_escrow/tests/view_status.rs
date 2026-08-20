@@ -62,7 +62,7 @@ fn test_view_package_status() {
     assert_eq!(status, PackageStatus::Created);
 
     // 3. Claim package and check status
-    client.claim(&pkg_id);
+    client.claim(&pkg_id, &recipient);
 
     let status_after_claim = client.view_package_status(&pkg_id);
     assert_eq!(status_after_claim, PackageStatus::Claimed);

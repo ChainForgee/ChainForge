@@ -122,7 +122,7 @@ fn test_aggregates_mixed_statuses() {
         &expiry,
         &metadata,
     );
-    client.claim(&2);
+    client.claim(&2, &r2);
 
     // P3: Cancelled (10M)
     client.create_package(
@@ -185,8 +185,8 @@ fn test_aggregates_all_claimed() {
         &Map::new(&env),
     );
 
-    client.claim(&10);
-    client.claim(&11);
+    client.claim(&10, &r1);
+    client.claim(&11, &r2);
 
     let agg = client.get_aggregates(&token_client.address);
     assert_eq!(agg.total_committed, 0);
@@ -235,7 +235,7 @@ fn test_aggregates_filters_by_token() {
         &expiry,
         &Map::new(&env),
     );
-    client.claim(&2);
+    client.claim(&2, &r1);
 
     // Token B: 50M cancelled
     client.create_package(
@@ -275,7 +275,7 @@ fn test_aggregates_disburse_counts_as_claimed() {
         &expiry,
         &Map::new(&env),
     );
-    client.claim(&1);
+    client.claim(&1, &r1);
 
     client.create_package(
         &admin,
@@ -312,7 +312,7 @@ fn test_aggregates_many_packages() {
             &Map::new(&env),
         );
         if i % 2 == 0 {
-            client.claim(&i);
+            client.claim(&i, &r);
         } else {
             client.cancel_package(&i);
         }
@@ -346,7 +346,7 @@ fn test_aggregates_update_after_transitions() {
         30_000_000
     );
 
-    client.claim(&1);
+    client.claim(&1, &r);
     let agg = client.get_aggregates(&token_client.address);
     assert_eq!(agg.total_committed, 0);
     assert_eq!(agg.total_claimed, 30_000_000);

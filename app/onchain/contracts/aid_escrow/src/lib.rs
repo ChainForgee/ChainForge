@@ -25,6 +25,10 @@ use soroban_sdk::{
     Bytes, Env, IntoVal, Map, String, Symbol, Val, Vec,
 };
 
+mod delegate;
+
+pub use delegate::DelegateHistory;
+
 // --- Storage Keys ---
 const KEY_ADMIN: Symbol = symbol_short!("admin");
 const KEY_TOTAL_LOCKED: Symbol = symbol_short!("locked"); // Map<Address, i128>
@@ -934,8 +938,12 @@ impl AidEscrow {
 
     // --- Recipient Actions ---
 
-    /// Recipient claims the package.
-    pub fn claim(env: Env, id: u64) -> Result<(), Error> {
+    /// Claims the package on behalf of `claimer`.
+    ///
+    /// `claimer` must be either the package recipient or a registered,
+    /// unexpired delegate (see `set_delegate`).  Funds always pay out to the
+    /// package `recipient`, even when a delegate authorises the claim.
+    pub fn claim(env: Env, id: u64, claimer: Address) -> Result<(), Error> {
         Self::check_action_paused(&env, symbol_short!("claim"))?;
         let key = (symbol_short!("pkg"), id);
         let mut package: Package = env
@@ -963,10 +971,23 @@ impl AidEscrow {
             return Err(Error::InvalidProof);
         }
 
-        package.recipient.require_auth();
+        // Only the recipient or a registered, unexpired delegate may claim.
+        if !delegate::is_authorised_claimer(&env, id, &package.recipient, &claimer) {
+            return Err(Error::NotAuthorized);
+        }
+        claimer.require_auth();
+
         let payout_recipient = package.recipient.clone();
 
-        Self::finalize_claim(&env, &key, &mut package, id, &payout_recipient, now)
+        Self::finalize_claim(
+            &env,
+            &key,
+            &mut package,
+            id,
+            &payout_recipient,
+            &claimer,
+            now,
+        )
     }
 
     /// Claim a package guarded by an optional Merkle allowlist.
@@ -1020,15 +1041,65 @@ impl AidEscrow {
                 Self::verify_merkle_proof_for_claimant(
                     &env, &claimant, &proof, root, expires_at, now,
                 )?;
-                Self::finalize_claim(&env, &key, &mut package, id, &claimant, now)
+                Self::finalize_claim(&env, &key, &mut package, id, &claimant, &claimant, now)
             }
             None => {
                 if claimant != package.recipient {
                     return Err(Error::NotAuthorized);
                 }
-                Self::finalize_claim(&env, &key, &mut package, id, &claimant, now)
+                Self::finalize_claim(&env, &key, &mut package, id, &claimant, &claimant, now)
             }
         }
+    }
+
+    // --- Delegate (recovery) Support ---
+
+    /// Admin-only. Registers `delegate` as the recovery address for
+    /// `package_id`, optionally with an `expires_at` deadline (0 = never).
+    ///
+    /// An unexpired delegate may authorise a claim on the package on behalf
+    /// of the recipient via `claim(id, claimer)`.  `set_delegate` is rejected
+    /// once the package is `Claimed`, and the delegate cannot equal the
+    /// recipient.  Delegate assignments are recorded in an append-only audit
+    /// trail readable via `get_delegate_history`.
+    ///
+    /// # Errors
+    /// - `Error::NotAuthorized` - caller is not the admin
+    /// - `Error::PackageNotFound` - package does not exist
+    /// - `Error::PackageNotActive` - package already claimed
+    /// - `Error::InvalidState` - delegate equals recipient, or `expires_at` is in the past
+    pub fn set_delegate(
+        env: Env,
+        package_id: u64,
+        delegate: Address,
+        expires_at: u64,
+    ) -> Result<(), Error> {
+        let admin = Self::get_admin(env.clone())?;
+        delegate::set_delegate_with_expiry(&env, &admin, package_id, &delegate, expires_at)
+    }
+
+    /// Returns the registered delegate for `package_id`, if any.
+    /// Returns `None` if no delegate is set or the delegate has expired.
+    pub fn get_delegate(env: Env, package_id: u64) -> Option<Address> {
+        delegate::get_delegate(&env, package_id)
+    }
+
+    /// Returns the registered delegate and its expiry for `package_id`.
+    /// Returns `None` if no delegate is set.
+    pub fn get_delegate_info(env: Env, package_id: u64) -> Option<(Address, Option<u64>)> {
+        delegate::get_delegate_info(&env, package_id)
+    }
+
+    /// Returns the full delegate audit trail for `package_id`.
+    pub fn get_delegate_history(env: Env, package_id: u64) -> Vec<DelegateHistory> {
+        delegate::get_delegate_history(&env, package_id)
+    }
+
+    /// Admin-only. Removes expired delegates from storage, reclaiming rent.
+    /// Returns the number of delegates cleaned up.
+    pub fn cleanup_expired_delegates(env: Env) -> Result<u32, Error> {
+        let admin = Self::get_admin(env.clone())?;
+        delegate::cleanup_expired_delegates(&env, &admin)
     }
 
     // --- Admin Actions ---
@@ -1548,6 +1619,7 @@ impl AidEscrow {
         package: &mut Package,
         package_id: u64,
         payout_recipient: &Address,
+        actor: &Address,
         now: u64,
     ) -> Result<(), Error> {
         Self::transfer_token(
@@ -1569,11 +1641,16 @@ impl AidEscrow {
         Self::add_to_status_totals(env, &package.token, PackageStatus::Created, -package.amount);
         Self::add_to_status_totals(env, &package.token, PackageStatus::Claimed, package.amount);
 
+        // A claimed package is terminal: drop any registered delegate so it
+        // can never be (re)assigned after funds move, and record the removal
+        // in the delegate audit trail (no-op when no delegate was set).
+        delegate::clear_delegate(env, package_id, actor);
+
         PackageClaimed {
             package_id,
             recipient: payout_recipient.clone(),
             amount: package.amount,
-            actor: payout_recipient.clone(),
+            actor: actor.clone(),
             timestamp: now,
         }
         .publish(env);

@@ -60,6 +60,14 @@
                       "val": {
                         "i128": "1"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "min_decimals"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
                     }
                   ]
                 }
@@ -532,6 +540,23 @@
                       },
                       {
                         "key": {
+                          "symbol": "cmt"
+                        },
+                        "val": {
+                          "map": [
+                            {
+                              "key": {
+                                "address": "CBUSYNQKASUYFWYC3M2GUEDMX4AIVWPALDBYJPNK6554BREHTGZ2IUNF"
+                              },
+                              "val": {
+                                "i128": "10000000"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
                           "symbol": "config"
                         },
                         "val": {
@@ -558,6 +583,14 @@
                               },
                               "val": {
                                 "i128": "1"
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "min_decimals"
+                              },
+                              "val": {
+                                "u32": 0
                               }
                             }
                           ]

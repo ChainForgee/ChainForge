@@ -276,7 +276,7 @@ fn profile_single_claim() {
     let before = capture_budget(&env);
 
     // Claim package
-    client.claim(&package_id_new);
+    client.claim(&package_id_new, &recipient_new);
 
     // Capture final budget
     let after = capture_budget(&env);

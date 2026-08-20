@@ -156,7 +156,7 @@ fn test_package_claimed_event() {
         &(env.ledger().timestamp() + 86400),
         &Map::new(&env),
     );
-    client.claim(&0u64);
+    client.claim(&0u64, &recipient);
 
     let data = last_event_data(&env, &contract_id, "package_claimed");
     assert_eq!(data_u64(&env, &data, "package_id"), 0);

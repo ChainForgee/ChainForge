@@ -2,7 +2,7 @@
 set -e
 
 # Claim an aid package
-# Usage: ./scripts/claim.sh --contract <ID> --id <PKG_ID>
+# Usage: ./scripts/claim.sh --contract <ID> --id <PKG_ID> --claimer <CLAIMER>
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -17,6 +17,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --contract) CONTRACT_ID="$2"; shift 2 ;;
         --id)       PKG_ID="$2";      shift 2 ;;
+        --claimer)  CLAIMER="$2";     shift 2 ;;
         --network)  NETWORK="$2";     shift 2 ;;
         *) echo "❌ Unknown option: $1"; exit 1 ;;
     esac
@@ -24,6 +25,7 @@ done
 
 if [ -z "$CONTRACT_ID" ]; then echo "❌ --contract is required"; exit 1; fi
 if [ -z "$PKG_ID" ];      then echo "❌ --id is required";       exit 1; fi
+if [ -z "$CLAIMER" ];     then echo "❌ --claimer is required";  exit 1; fi
 if [ -z "$SECRET_KEY" ];  then echo "❌ SECRET_KEY not set in .env"; exit 1; fi
 
 case "$NETWORK" in
@@ -38,6 +40,7 @@ echo "  🎁 Invoking: claim"
 echo "======================================"
 echo "  Contract ID : $CONTRACT_ID"
 echo "  Package ID  : $PKG_ID"
+echo "  Claimer     : $CLAIMER"
 echo "  Network     : $NETWORK"
 echo "======================================"
 
@@ -48,6 +51,7 @@ TX_OUTPUT=$(soroban contract invoke \
     --rpc-url "$RPC_URL" \
     -- claim \
     --id "$PKG_ID" \
+    --claimer "$CLAIMER" \
     2>&1)
 
 echo ""

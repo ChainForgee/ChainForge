@@ -209,7 +209,7 @@ fn run_sequence(ops: std::vec::Vec<Op>) {
                 if !active.is_empty() {
                     let pos = idx % active.len();
                     let (id, amount) = active[pos];
-                    if client.try_claim(&id).is_ok() {
+                    if client.try_claim(&id, &recipient).is_ok() {
                         mirror_withdrawn += amount;
                         active.remove(pos);
                     }
@@ -381,7 +381,7 @@ fn smoke_claim_moves_locked_to_claimed() {
     let before_locked = client.get_total_locked(&token_addr);
     let before_claimed = client.get_total_claimed(&token_addr);
 
-    client.claim(&1);
+    client.claim(&1, &recipient);
 
     assert_eq!(
         client.get_total_locked(&token_addr),

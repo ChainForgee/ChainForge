@@ -127,7 +127,7 @@ mod claim_start_boundaries {
 
         // Try to claim 1 second before claim_starts_at
         t.set_timestamp(claim_starts_at - 1);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::ClaimTooEarly)));
 
         // Verify package status is still Created (not auto-expired)
@@ -147,7 +147,7 @@ mod claim_start_boundaries {
 
         // Claim at exact claim_starts_at
         t.set_timestamp(claim_starts_at);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert!(result.is_ok());
 
         // Verify package status is Claimed
@@ -167,7 +167,7 @@ mod claim_start_boundaries {
 
         // Claim 1 second after claim_starts_at
         t.set_timestamp(claim_starts_at + 1);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert!(result.is_ok());
 
         // Verify package status is Claimed
@@ -195,7 +195,7 @@ mod expiry_boundaries {
 
         // Claim 1 second before expires_at
         t.set_timestamp(expires_at - 1);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert!(result.is_ok());
 
         // Verify package status is Claimed
@@ -215,7 +215,7 @@ mod expiry_boundaries {
 
         // Claim at exact expires_at
         t.set_timestamp(expires_at);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert!(result.is_ok());
 
         // Verify package status is Claimed
@@ -235,7 +235,7 @@ mod expiry_boundaries {
 
         // Try to claim 1 second after expires_at
         t.set_timestamp(expires_at + 1);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::PackageExpired)));
 
         // Verify package status remains Created (not auto-updated)
@@ -255,7 +255,7 @@ mod expiry_boundaries {
 
         // Try to claim 1000 seconds after expires_at
         t.set_timestamp(expires_at + 1000);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::PackageExpired)));
 
         // Verify package status remains Created (not auto-updated)
@@ -283,7 +283,7 @@ mod combined_boundaries {
 
         // Try to claim before the boundary
         t.set_timestamp(boundary_time - 1);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::ClaimTooEarly)));
 
         // Verify package status is still Created
@@ -303,7 +303,7 @@ mod combined_boundaries {
 
         // Claim at the exact boundary
         t.set_timestamp(boundary_time);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert!(result.is_ok());
 
         // Verify package status is Claimed
@@ -323,7 +323,7 @@ mod combined_boundaries {
 
         // Try to claim after the boundary
         t.set_timestamp(boundary_time + 1);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::PackageExpired)));
 
         // Verify package status remains Created (not auto-updated)
@@ -343,7 +343,7 @@ mod combined_boundaries {
 
         // Claim at start - should succeed
         t.set_timestamp(claim_starts_at);
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert!(result.is_ok());
     }
 
@@ -410,7 +410,7 @@ mod late_claim_behavior {
         t.set_timestamp(expires_at + 10);
 
         // First late claim attempt - should fail with PackageExpired
-        let result1 = t.client.try_claim(&id);
+        let result1 = t.client.try_claim(&id, &recipient);
         assert_eq!(result1, Err(Ok(Error::PackageExpired)));
 
         // Verify status remains Created (not auto-updated)
@@ -418,7 +418,7 @@ mod late_claim_behavior {
         assert_eq!(pkg1.status, PackageStatus::Created);
 
         // Second late claim attempt - should still fail with PackageExpired
-        let result2 = t.client.try_claim(&id);
+        let result2 = t.client.try_claim(&id, &recipient);
         assert_eq!(result2, Err(Ok(Error::PackageExpired)));
 
         // Verify status still remains Created
@@ -438,7 +438,7 @@ mod late_claim_behavior {
 
         // Advance past expiry and claim
         t.set_timestamp(expires_at + 10);
-        let result1 = t.client.try_claim(&id);
+        let result1 = t.client.try_claim(&id, &recipient);
         assert_eq!(result1, Err(Ok(Error::PackageExpired)));
 
         // Verify status remains Created
@@ -449,7 +449,7 @@ mod late_claim_behavior {
         t.set_timestamp(claim_starts_at + 50);
 
         // Should succeed because status is still Created
-        let result2 = t.client.try_claim(&id);
+        let result2 = t.client.try_claim(&id, &recipient);
         assert!(result2.is_ok());
 
         // Verify status is now Claimed
@@ -516,7 +516,7 @@ mod edge_cases {
         t.set_timestamp(now + 1_000_000);
 
         // Should still be claimable
-        let result = t.client.try_claim(&id);
+        let result = t.client.try_claim(&id, &recipient);
         assert!(result.is_ok());
 
         let pkg = t.client.get_package(&id);

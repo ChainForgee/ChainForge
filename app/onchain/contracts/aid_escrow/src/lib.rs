@@ -1220,11 +1220,12 @@ impl AidEscrow {
             .get(&key)
             .ok_or(Error::PackageNotFound)?;
 
-        // Can only refund if Expired or Cancelled.
-        // If Created, must Revoke first. If Claimed, impossible.
-        // If Refunded, impossible.
-        let should_unlock_locked =
-            package.status == PackageStatus::Created || package.status == PackageStatus::Expired;
+        // Only a `Created` package still holds its amount in KEY_TOTAL_LOCKED.
+        // A package auto-expired on the claim path has already had its locked
+        // funds released and its aggregates moved, so it must NOT be unlocked
+        // again here (that would double-decrement). Cancelled packages were
+        // already unlocked in `revoke`.
+        let should_unlock_locked = package.status == PackageStatus::Created;
 
         // Capture whether the package was in Created status before any mutations.
         // Packages already in Expired or Cancelled are already counted in
@@ -1244,8 +1245,9 @@ impl AidEscrow {
             return Err(Error::InvalidState);
         }
 
-        // If Cancelled, funds were already unlocked in `revoke`.
-        // Expired packages are unlocked only after a successful refund transfer.
+        // Cancelled packages were already unlocked in `revoke`; auto-expired
+        // packages were already unlocked in `expire_if_past_due`. Only a
+        // `Created` package is unlocked here (see `should_unlock_locked`).
 
         // Transfer Contract -> Admin
         Self::transfer_token(
@@ -1523,6 +1525,50 @@ impl AidEscrow {
 
         locked_map.set(token.clone(), new_locked);
         env.storage().instance().set(&KEY_TOTAL_LOCKED, &locked_map);
+    }
+
+    /// Permissionless. Idempotently transitions a past-due `Created` package
+    /// to `Expired`, releasing its locked funds and moving its aggregate totals
+    /// from `Created` to the expired/cancelled bucket.
+    ///
+    /// Returns `Ok` whether the package was expired, is still claimable, or was
+    /// already in a terminal state (idempotent). The transition must be a
+    /// successful call because Soroban reverts storage writes when a function
+    /// returns an error, so a late `claim` cannot both transition the package
+    /// and return `Error::PackageExpired` in the same invocation.
+    pub fn expire_if_past_due(env: Env, id: u64) -> Result<(), Error> {
+        let key = (symbol_short!("pkg"), id);
+        let mut package: Package = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::PackageNotFound)?;
+
+        let now = env.ledger().timestamp();
+
+        // `expires_at == 0` means the package never expires.
+        if package.expires_at == 0 || now <= package.expires_at {
+            return Ok(());
+        }
+        // Only a `Created` package can transition; an already-terminal package
+        // has either been paid out or already released its funds.
+        if package.status != PackageStatus::Created {
+            return Ok(());
+        }
+
+        package.status = PackageStatus::Expired;
+        env.storage().persistent().set(&key, &package);
+
+        Self::decrement_locked(&env, &package.token, package.amount);
+        Self::add_to_status_totals(
+            &env,
+            &package.token,
+            PackageStatus::Created,
+            -package.amount,
+        );
+        Self::add_to_status_totals(&env, &package.token, PackageStatus::Expired, package.amount);
+
+        Ok(())
     }
 
     /// Validates a token contract against the configured decimals policy.

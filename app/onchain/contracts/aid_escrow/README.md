@@ -63,6 +63,7 @@ expires and is refunded.
 | `disburse(env, id)` | Admin | Admin manually disburses a package to its recipient. |
 | `revoke(env, id)` | Admin | Admin revokes a package, returning funds to the surplus pool. |
 | `refund(env, id)` | Admin | Refunds an expired or cancelled package to the admin. |
+| `expire_if_past_due(env, id)` | — | Permissionless, idempotent sweep: transitions a past-due `Created` package to `Expired`, releases its locked funds, and moves its aggregate totals to the expired/cancelled bucket. |
 | `cancel_package(env, package_id)` | Admin | Cancels a package (transitions to Cancelled status). |
 | `extend_expiration(env, package_id, additional_time)` | Admin / Distributor | Extends the expiration time of an active package. |
 
@@ -89,7 +90,7 @@ expires and is refunded.
 
 ```
 Created --> Claimed          (recipient or delegate claims)
-Created --> Expired          (past expiry, recipient tries to claim)
+Created --> Expired          (past expiry, expire_if_past_due sweep)
 Created --> Cancelled        (admin cancels)
 Created --> Claimed (admin)  (admin disburses)
 Expired --> Refunded         (admin refunds)

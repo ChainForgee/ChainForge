@@ -16,6 +16,11 @@ import {
 
 import { DlqService } from '../jobs/dlq.service';
 import { MetricsService } from '../observability/metrics/metrics.service';
+import { LedgerBackfillService, BackfillJobData } from './ledger-backfill.service';
+import {
+  LedgerReconciliationService,
+  ReconciliationJobData,
+} from './ledger-reconciliation.service';
 
 @Processor('onchain', {
   concurrency: 1, // Usually sequential for blockchain transactions
@@ -28,17 +33,23 @@ export class OnchainProcessor extends WorkerHost {
     private readonly onchainAdapter: OnchainAdapter,
     private readonly dlqService: DlqService,
     private readonly metricsService: MetricsService,
+    private readonly reconciliationService: LedgerReconciliationService,
+    private readonly backfillService: LedgerBackfillService,
   ) {
     super();
   }
 
   async process(
-    job: Job<OnchainJobData, OnchainJobResult, string>,
+    job: Job<
+      OnchainJobData | ReconciliationJobData | BackfillJobData,
+      OnchainJobResult,
+      string
+    >,
   ): Promise<OnchainJobResult> {
     const startedAt = Date.now();
-    const operation = String(job.data.type);
-    const correlationSuffix = job.data.correlationId
-      ? ` [correlationId=${job.data.correlationId}]`
+    const operation = String((job.data as OnchainJobData).type);
+    const correlationSuffix = (job.data as OnchainJobData).correlationId
+      ? ` [correlationId=${(job.data as OnchainJobData).correlationId}]`
       : '';
 
     this.logger.log(
@@ -46,20 +57,41 @@ export class OnchainProcessor extends WorkerHost {
     );
 
     try {
+      // Ledger admin jobs share the 'onchain' queue but are dispatched by job
+      // name to their dedicated services.
+      if (job.name === 'ledger-reconciliation') {
+        const report = await this.reconciliationService.processReconciliation(
+          job.data as ReconciliationJobData,
+        );
+        return {
+          success: true,
+          metadata: { reconciliation: report },
+        };
+      }
+      if (job.name === 'ledger-backfill') {
+        const result = await this.backfillService.processBackfillBatch(
+          job.data as BackfillJobData,
+        );
+        return {
+          success: true,
+          metadata: { backfill: result },
+        };
+      }
+
       let result: InitEscrowResult | CreateClaimResult | DisburseResult;
-      switch (job.data.type) {
+      const onchainData = job.data as OnchainJobData;
+      switch (onchainData.type) {
         case OnchainOperationType.INIT_ESCROW:
-          result = await this.onchainAdapter.initEscrow(job.data.params);
+          result = await this.onchainAdapter.initEscrow(onchainData.params);
           break;
         case OnchainOperationType.CREATE_CLAIM:
-          result = await this.onchainAdapter.createClaim(job.data.params);
+          result = await this.onchainAdapter.createClaim(onchainData.params);
           break;
         case OnchainOperationType.DISBURSE:
-          result = await this.onchainAdapter.disburse(job.data.params);
+          result = await this.onchainAdapter.disburse(onchainData.params);
           break;
         default: {
-          // Exhaustive: every OnchainOperationType is handled above.
-          const unhandled: never = job.data;
+          const unhandled: never = onchainData as never;
           throw new Error(
             `Unknown onchain operation type: ${String(unhandled)}`,
           );
@@ -67,7 +99,7 @@ export class OnchainProcessor extends WorkerHost {
       }
 
       if (result.status === 'failed') {
-        throw new Error(`Onchain operation failed: ${String(job.data.type)}`);
+        throw new Error(`Onchain operation failed: ${String(onchainData.type)}`);
       }
 
       this.metricsService.recordContractCallLatency(

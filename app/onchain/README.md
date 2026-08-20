@@ -91,6 +91,16 @@ Events use stable topic identifiers (struct name in snake_case) so indexers and 
 | `get_package(id)` | Returns full package details | None |
 | `view_package_status(id)` | Returns only the status of a package | None |
 | `get_aggregates(token)` | Returns total committed/claimed/expired stats | None |
+| `get_recipient_package_count(recipient)` | Returns the number of packages for a recipient (O(1), via the recipient index) | None |
+| `list_recipient_packages(recipient, cursor, limit)` | Returns `{ ids, next_cursor }` — a page of recipient package IDs plus the cursor for the next page | None |
+
+#### Recipient pagination contract
+
+`list_recipient_packages` pages over the recipient's secondary index, so pages contain only that recipient's packages — no skipped matches, no empty pages while matches remain — regardless of how sparse the global package-ID space is.
+
+- `cursor` is the per-recipient index ordinal from the previous page's `next_cursor` (`0` for the first page).
+- `limit` is clamped to `MAX_RECIPIENT_PAGE_SIZE = 100`, so a single read call can never request an unbounded scan window.
+- `next_cursor` is the ordinal to pass as the next `cursor`; when it equals the recipient's total count, there are no further pages.
 
 ---
 

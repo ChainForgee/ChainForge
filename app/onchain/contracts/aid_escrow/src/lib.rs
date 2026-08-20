@@ -36,6 +36,13 @@ const KEY_VERSION: Symbol = symbol_short!("version");
 const KEY_PKG_COUNTER: Symbol = symbol_short!("pkg_cnt");
 const KEY_CONFIG: Symbol = symbol_short!("config");
 const KEY_PKG_IDX: Symbol = symbol_short!("pkg_idx"); // Aggregation index counter
+const KEY_RECIPIENT_COUNT: Symbol = symbol_short!("rcnt"); // Map<Address, u64> — packages per recipient
+
+// Secondary index: instance (KEY_RECIPIENT_IDX, recipient, seq) -> u64 package_id.
+// seq is a per-recipient ordinal assigned at creation, so recipient queries never
+// scan the global ID space (see issue #424). Instance storage is used because
+// persistent writes meter far higher in this SDK (see GAS_PROFILING_REPORT.md).
+const KEY_RECIPIENT_IDX: Symbol = symbol_short!("rpidx");
 const KEY_DISTRIBUTORS: Symbol = symbol_short!("dstrbtrs"); // Map<Address, bool>
 const KEY_PAUSED: Symbol = symbol_short!("paused");
 const KEY_PAUSE_CREATE: Symbol = symbol_short!("p_create");
@@ -58,6 +65,11 @@ const DEFAULT_ADMIN_DEADLINE: u64 = 7 * 24 * 60 * 60; // 7 days in seconds
 /// represent a whole unit).  `validate_token` rejects anything above
 /// this with `Error::InvalidTokenDecimals`.  See issue #235.
 pub const MAX_TOKEN_DECIMALS: u32 = 38;
+
+/// Upper bound for `list_recipient_packages` page sizes.  The `limit` argument
+/// is clamped to this value so a single read call can never request a scan
+/// window large enough to exhaust Soroban's per-call read budget (issue #424).
+pub const MAX_RECIPIENT_PAGE_SIZE: u32 = 100;
 
 /// Initial value of `Config.min_decimals` written by `init()` when no
 /// admin has called `set_config()` yet.  0 disables the floor check, so
@@ -112,6 +124,18 @@ pub struct Aggregates {
     pub total_committed: i128,
     pub total_claimed: i128,
     pub total_expired_cancelled: i128,
+}
+
+/// One page of `list_recipient_packages` results.
+///
+/// `next_cursor` is the per-recipient index ordinal to pass as `cursor` on the
+/// next call; when it equals the recipient's total package count there are no
+/// further pages.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecipientPackagesPage {
+    pub ids: Vec<u64>,
+    pub next_cursor: u64,
 }
 
 #[contracterror]
@@ -766,6 +790,9 @@ impl AidEscrow {
 
         env.storage().persistent().set(&key, &package);
 
+        // Maintain the recipient → package-id secondary index (issue #424).
+        Self::index_recipient_package(&env, &recipient, id);
+
         // Increment running committed total for the token
         Self::add_to_status_totals(&env, &token, PackageStatus::Created, amount);
 
@@ -843,6 +870,14 @@ impl AidEscrow {
         let mut counter: u64 = env.storage().instance().get(&KEY_PKG_COUNTER).unwrap_or(0);
         // Read the current aggregation index
         let mut idx: u64 = env.storage().instance().get(&KEY_PKG_IDX).unwrap_or(0);
+        // Recipient index bookkeeping is hoisted into memory and persisted once
+        // after the loop: re-serializing the per-recipient count map on every
+        // iteration would be O(n^2) and blow the read budget on large batches.
+        let mut recipient_count_map: Map<Address, u64> = env
+            .storage()
+            .instance()
+            .get(&KEY_RECIPIENT_COUNT)
+            .unwrap_or(Map::new(&env));
 
         let created_at = env.ledger().timestamp();
         let expires_at = created_at + expires_in;
@@ -895,6 +930,14 @@ impl AidEscrow {
 
             env.storage().persistent().set(&key, &package);
 
+            // Maintain the recipient → package-id secondary index (issue #424).
+            // Only the small per-recipient entry is written per package; the
+            // count map is updated in memory and persisted after the loop.
+            let seq = recipient_count_map.get(recipient.clone()).unwrap_or(0);
+            let rpidx_key = (KEY_RECIPIENT_IDX, recipient.clone(), seq);
+            env.storage().instance().set(&rpidx_key, &id);
+            recipient_count_map.set(recipient.clone(), seq + 1);
+
             // Track running committed total
             Self::add_to_status_totals(&env, &token, PackageStatus::Created, amount);
 
@@ -924,6 +967,9 @@ impl AidEscrow {
         env.storage().instance().set(&KEY_TOTAL_LOCKED, &locked_map);
         env.storage().instance().set(&KEY_PKG_COUNTER, &counter);
         env.storage().instance().set(&KEY_PKG_IDX, &idx);
+        env.storage()
+            .instance()
+            .set(&KEY_RECIPIENT_COUNT, &recipient_count_map);
 
         // Emit batch event
         BatchCreatedEvent {
@@ -1956,61 +2002,85 @@ impl AidEscrow {
 
     /// Returns the number of stored packages assigned to `recipient`.
     ///
-    /// This naive helper scans all package IDs from `0..package_counter`, treating the
-    /// counter as an upper bound over assigned IDs and skipping gaps.
+    /// O(1): reads the per-recipient counter maintained by
+    /// [`index_recipient_package`], so the cost is independent of the global
+    /// package counter and of how many packages other recipients own.
     pub fn get_recipient_package_count(env: Env, recipient: Address) -> u64 {
-        let count: u64 = env.storage().instance().get(&KEY_PKG_COUNTER).unwrap_or(0);
-        let mut matches = 0;
-
-        for id in 0..count {
-            let key = (symbol_short!("pkg"), id);
-            if let Some(package) = env.storage().persistent().get::<_, Package>(&key) {
-                if package.recipient == recipient {
-                    matches += 1;
-                }
-            }
-        }
-
-        matches
+        let count_map: Map<Address, u64> = env
+            .storage()
+            .instance()
+            .get(&KEY_RECIPIENT_COUNT)
+            .unwrap_or(Map::new(&env));
+        count_map.get(recipient).unwrap_or(0)
     }
 
     /// Lists package IDs for a specific recipient with pagination.
     ///
+    /// Enumerates the recipient's secondary index, so pages contain only that
+    /// recipient's packages (no skipped matches and no empty pages while
+    /// matches remain), regardless of how large the global ID space is.
+    ///
     /// # Arguments
     /// * `recipient` - The address to filter packages by
-    /// * `cursor` - Starting position for pagination (0-indexed)
-    /// * `limit` - Maximum number of results to return
+    /// * `cursor` - Per-recipient index ordinal of the first package to return
+    ///   (the `next_cursor` from the previous page, or `0` for the first page)
+    /// * `limit` - Maximum number of results to return; clamped to
+    ///   [`MAX_RECIPIENT_PAGE_SIZE`]
     ///
     /// # Returns
-    /// A Vec<u64> containing package IDs that belong to the recipient,
-    /// starting from the cursor position and limited by the limit parameter.
+    /// A [`RecipientPackagesPage`] containing up to `limit` package IDs and a
+    /// `next_cursor` for the following page. When `next_cursor` equals the
+    /// recipient's total package count, no further pages exist.
     pub fn list_recipient_packages(
         env: Env,
         recipient: Address,
         cursor: u64,
         limit: u32,
-    ) -> Vec<u64> {
-        let package_counter: u64 = env.storage().instance().get(&KEY_PKG_COUNTER).unwrap_or(0);
-        let mut result: Vec<u64> = Vec::new(&env);
+    ) -> RecipientPackagesPage {
+        let count = Self::get_recipient_package_count(env.clone(), recipient.clone());
+        let limit = u64::from(limit.min(MAX_RECIPIENT_PAGE_SIZE));
+        let mut ids: Vec<u64> = Vec::new(&env);
 
-        // Calculate the end position: cursor + limit or package_counter, whichever comes first
-        let end_pos = if cursor.saturating_add(limit as u64) > package_counter {
-            package_counter
+        let next_cursor = if cursor >= count {
+            // Exhausted: nothing to return, and report the end so the caller
+            // can stop paginating.
+            count
         } else {
-            cursor.saturating_add(limit as u64)
-        };
-
-        // Iterate from cursor to end_pos
-        for id in cursor..end_pos {
-            let key = (symbol_short!("pkg"), id);
-            if let Some(package) = env.storage().persistent().get::<_, Package>(&key) {
-                if package.recipient == recipient {
-                    result.push_back(id);
+            let end = cursor.saturating_add(limit).min(count);
+            for seq in cursor..end {
+                let idx_key = (KEY_RECIPIENT_IDX, recipient.clone(), seq);
+                if let Some(id) = env.storage().instance().get::<_, u64>(&idx_key) {
+                    ids.push_back(id);
                 }
             }
-        }
+            end
+        };
 
-        result
+        RecipientPackagesPage { ids, next_cursor }
+    }
+
+    /// Appends `package_id` to `recipient`'s secondary index.
+    ///
+    /// Writes one instance-storage entry `(KEY_RECIPIENT_IDX, recipient, seq)`
+    /// and bumps the per-recipient counter. Called from every package-creation
+    /// path so the index is always consistent with `(pkg, id)` records; a
+    /// failed creation reverts the whole transaction, so no orphan entries can
+    /// be observed.
+    fn index_recipient_package(env: &Env, recipient: &Address, package_id: u64) {
+        let mut count_map: Map<Address, u64> = env
+            .storage()
+            .instance()
+            .get(&KEY_RECIPIENT_COUNT)
+            .unwrap_or(Map::new(env));
+        let seq = count_map.get(recipient.clone()).unwrap_or(0);
+
+        let idx_key = (KEY_RECIPIENT_IDX, recipient.clone(), seq);
+        env.storage().instance().set(&idx_key, &package_id);
+
+        count_map.set(recipient.clone(), seq + 1);
+        env.storage()
+            .instance()
+            .set(&KEY_RECIPIENT_COUNT, &count_map);
     }
 }
 
@@ -2116,7 +2186,8 @@ mod tests {
         );
 
         let packages = client.list_recipient_packages(&recipient1, &0, &10);
-        assert_eq!(packages.len(), 2);
+        assert_eq!(packages.ids.len(), 2);
+        assert_eq!(packages.next_cursor, 2);
     }
 
     #[test]
@@ -2146,7 +2217,8 @@ mod tests {
         }
 
         let page = client.list_recipient_packages(&recipient, &0, &3);
-        assert_eq!(page.len(), 3);
+        assert_eq!(page.ids.len(), 3);
+        assert_eq!(page.next_cursor, 3);
     }
 
     #[test]

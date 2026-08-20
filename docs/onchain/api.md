@@ -51,6 +51,6 @@ Full contract documentation: [`app/onchain/contracts/aid_escrow/README.md`](../.
 | `get_aggregates(env, token)` | — | Returns aggregate stats for a token. |
 | `get_total_locked(env, token)` | — | Returns total locked amount for a token. |
 | `get_total_claimed(env, token)` | — | Returns total claimed amount for a token. |
-| `get_recipient_package_count(env, recipient)` | — | Returns package count for a recipient. |
-| `list_recipient_packages(env, recipient, cursor, limit)` | — | Paginated list of recipient package IDs. |
+| `get_recipient_package_count(env, recipient)` | — | Returns package count for a recipient (O(1), backed by the recipient index). |
+| `list_recipient_packages(env, recipient, cursor, limit)` | — | Returns `{ ids, next_cursor }`: a page of recipient package IDs plus the continuation cursor. `limit` is clamped to `MAX_RECIPIENT_PAGE_SIZE` (100). |
 | `withdraw_surplus(env, to, amount, token)` | Admin | Withdraws surplus (unlocked) tokens. |

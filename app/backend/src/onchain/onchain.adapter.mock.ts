@@ -29,6 +29,12 @@ import {
   GetTransactionStatusParams,
   GetTransactionStatusResult,
   TxStatus,
+  BuildUnsignedClaimTxParams,
+  BuildUnsignedClaimTxResult,
+  BuildUnsignedCreatePackageParams,
+  BuildUnsignedCreatePackageResult,
+  SubmitSignedTxParams,
+  SubmitSignedTxResult,
 } from './onchain.adapter';
 import { createHash } from 'crypto';
 
@@ -144,6 +150,58 @@ export class MockOnchainAdapter implements OnchainAdapter {
       metadata: {
         packageId: params.packageId,
         recipientAddress: params.recipientAddress,
+        adapter: 'mock',
+      },
+    };
+  }
+
+  async buildUnsignedClaimTx(
+    params: BuildUnsignedClaimTxParams,
+  ): Promise<BuildUnsignedClaimTxResult> {
+    await Promise.resolve();
+    return {
+      packageId: params.packageId,
+      recipientAddress: params.recipientAddress,
+      transactionXdr: `mock-unsigned-claim-xdr-${params.packageId}-${params.recipientAddress}`,
+      transactionHash: this.generateMockHash(
+        `unsigned-claim-${params.packageId}-${params.recipientAddress}`,
+      ),
+      expiresAt: Math.floor(Date.now() / 1000) + 300,
+      timestamp: new Date(),
+    };
+  }
+
+  async buildUnsignedCreatePackageTx(
+    params: BuildUnsignedCreatePackageParams,
+  ): Promise<BuildUnsignedCreatePackageResult> {
+    await Promise.resolve();
+    return {
+      packageId: params.packageId,
+      operatorAddress: params.operatorAddress,
+      transactionXdr: `mock-unsigned-create-package-xdr-${params.packageId}-${params.operatorAddress}`,
+      transactionHash: this.generateMockHash(
+        `unsigned-create-package-${params.packageId}-${params.operatorAddress}`,
+      ),
+      expiresAt: Math.floor(Date.now() / 1000) + 300,
+      timestamp: new Date(),
+    };
+  }
+
+  async submitSignedTx(
+    params: SubmitSignedTxParams,
+  ): Promise<SubmitSignedTxResult> {
+    await Promise.resolve();
+    const transactionHash = this.generateMockHash(
+      `signed-tx-${params.signedXdr.slice(0, 32)}-${Date.now()}`,
+    );
+
+    return {
+      transactionHash,
+      status: 'success',
+      timestamp: new Date(),
+      metadata: {
+        contractId: this.mockEscrowAddress,
+        signer: params.expectedSigner,
         adapter: 'mock',
       },
     };

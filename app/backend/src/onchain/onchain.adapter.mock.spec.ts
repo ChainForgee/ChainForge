@@ -169,4 +169,53 @@ describe('MockOnchainAdapter', () => {
       expect(result.metadata?.recipientAddress).toBe(recipientAddress);
     });
   });
+
+  describe('client-signing seam', () => {
+    const RECIPIENT =
+      'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+    const OPERATOR =
+      'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+
+    it('buildUnsignedClaimTx returns an unsigned envelope stub', async () => {
+      const result = await adapter.buildUnsignedClaimTx({
+        packageId: '1',
+        recipientAddress: RECIPIENT,
+      });
+
+      expect(result.packageId).toBe('1');
+      expect(result.recipientAddress).toBe(RECIPIENT);
+      expect(result.transactionXdr).toContain('mock-unsigned-claim-xdr');
+      expect(result.transactionHash).toHaveLength(64);
+      expect(result.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
+      expect(result.timestamp).toBeInstanceOf(Date);
+    });
+
+    it('buildUnsignedCreatePackageTx returns an unsigned envelope stub', async () => {
+      const result = await adapter.buildUnsignedCreatePackageTx({
+        operatorAddress: OPERATOR,
+        packageId: '42',
+        recipientAddress: RECIPIENT,
+        amount: '250',
+        tokenAddress: MOCK_TOKEN_ADDRESS,
+        expiresAt: 1767225600,
+      });
+
+      expect(result.packageId).toBe('42');
+      expect(result.operatorAddress).toBe(OPERATOR);
+      expect(result.transactionXdr).toContain('mock-unsigned-create-package');
+      expect(result.transactionHash).toHaveLength(64);
+    });
+
+    it('submitSignedTx accepts a signed envelope and reports success', async () => {
+      const result = await adapter.submitSignedTx({
+        signedXdr: 'mock-signed-xdr-123',
+        expectedSigner: RECIPIENT,
+      });
+
+      expect(result.status).toBe('success');
+      expect(result.transactionHash).toHaveLength(64);
+      expect(result.metadata?.signer).toBe(RECIPIENT);
+      expect(result.metadata?.adapter).toBe('mock');
+    });
+  });
 });

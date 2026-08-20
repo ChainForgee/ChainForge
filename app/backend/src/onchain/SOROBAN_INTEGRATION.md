@@ -229,6 +229,53 @@ ONCHAIN_ADAPTER=mock
 ONCHAIN_ADAPTER=soroban
 ```
 
+## Signing model (recipient / distributor auth)
+
+The `aid_escrow` contract's auth is **per-caller**, not per-backend: `claim(id, claimer)` calls `claimer.require_auth()`, and `create_package` calls `require_admin_or_distributor(&operator)`. A backend that signs every envelope with a single `SOROBAN_ADMIN_SECRET_KEY` keypair can only ever satisfy these checks when the admin *is* the caller (e.g. the admin acting as its own recipient). Real recipients and distributors hold their own keys, so the adapter exposes a **client-signing seam** in two phases:
+
+1. `buildUnsignedClaimTx({ packageId, recipientAddress })` / `buildUnsignedCreatePackageTx({ ... })` — simulate the contract call and return an **unsigned envelope XDR** whose Soroban auth entries demand the caller's signature. The envelope *source account is the admin account*, so the admin sponsors all fees; the recipient/distributor never needs to hold XLM or even have an account. A `transactionHash` (informational) and an `expiresAt` freshness window are returned alongside.
+2. The client (mobile WalletConnect / Freighter / a backend service holding the distributor key) signs the auth entries and returns the new envelope XDR.
+3. `submitSignedTx({ signedXdr, expectedSigner })` — cryptographically verifies that every auth entry was signed by the account the contract requires (and, when `expectedSigner` is set, exactly that account), signs the envelope with the admin keypair, submits, and polls until confirmed. A claim whose auth entry was signed by the admin keypair — or by any other account — is **rejected before submission**.
+
+Admin-only operations (`disburse`, `revoke`, `refund`, config, `init`) are unchanged: they still sign with the admin keypair via the internal admin-signed path. The legacy `claimAidPackage` / `createAidPackage` admin-signed methods also remain for the admin-as-caller case; for real end-user keys, use the seam.
+
+### Fee sponsorship strategy
+
+Fees are sponsored by making the **admin account the transaction source**. This is strictly simpler than a fee-bump: a fee-bump still requires the inner (recipient-source) transaction to have a valid source account and sequence number, which a fresh recipient cannot provide, and it adds a second envelope to construct. With the admin as source, one envelope covers both the caller's auth entry and the admin's fee payment. The trade-off is sequence-number management: the unsigned envelope pins the admin's sequence at build time, so a concurrent admin-signed submission between `build*` and `submitSignedTx` can invalidate it (`tx_bad_seq`). Submit promptly and retry by rebuilding the unsigned envelope; a shared nonce/sequence manager is a deliberate follow-up.
+
+### Client-side signing sequence
+
+The client signs the auth entries (not the envelope — the admin signs that server-side). Using the Stellar JS SDK:
+
+```ts
+import {
+  TransactionBuilder,
+  Operation,
+  SorobanDataBuilder,
+  authorizeEntry,
+} from '@stellar/stellar-sdk';
+
+const tx = TransactionBuilder.fromXDR(transactionXdr, networkPassphrase) as Transaction;
+const op = tx.operations[0];
+const expiration = op.auth![0].credentials().address().signatureExpirationLedger();
+const signedEntries = await Promise.all(
+  op.auth!.map(entry => authorizeEntry(entry, recipientKeypair, expiration, networkPassphrase)),
+);
+const signedXdr = TransactionBuilder.cloneFrom(tx, {
+  fee: tx.fee,
+  networkPassphrase,
+  sorobanData: tx.sorobanData,
+})
+  .clearOperations()
+  .addOperation(Operation.invokeHostFunction({ source: op.source, func: op.func, auth: signedEntries }))
+  .build()
+  .toXDR();
+
+// POST signedXdr (+ expectedSigner) back to the backend → submitSignedTx
+```
+
+The signature payload is `sha256(HashIdPreimageSorobanAuthorization{ networkId, nonce, invocation, signatureExpirationLedger })` — it does **not** cover the envelope, so the backend can safely re-sign the envelope and the client can rebuild timebounds without invalidating the recipient's signature. The on-chain `signature_expiration_ledger` (set during simulation) is the authoritative expiry, enforced by the network.
+
 ## Error Handling
 
 All errors follow the global error format:

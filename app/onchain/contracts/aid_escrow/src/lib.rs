@@ -53,6 +53,7 @@ const KEY_TOTAL_COMMITTED: Symbol = symbol_short!("cmt"); // Map<Address, i128>
 const KEY_TOTAL_EXPIRED_CANCELLED: Symbol = symbol_short!("expcan"); // Map<Address, i128>
 const META_MERKLE_ROOT_KEY: &str = "merkle_root";
 const META_MERKLE_ROOT_EXPIRES_AT_KEY: &str = "merkle_root_expires_at";
+const META_MERKLE_LEAF_VERSION_KEY: &str = "merkle_leaf_version";
 const KEY_PENDING_ADMIN: Symbol = symbol_short!("pendadm");
 const KEY_ADMIN_DEADLINE: Symbol = symbol_short!("admdln");
 const DEFAULT_ADMIN_DEADLINE: u64 = 7 * 24 * 60 * 60; // 7 days in seconds
@@ -1040,7 +1041,15 @@ impl AidEscrow {
     ///
     /// If package metadata includes `merkle_root` (hex-encoded 32-byte value),
     /// `proof` must contain sibling hashes (hex-encoded 32-byte values) that
-    /// validate the claimant leaf `sha256(claimant_address_string)`.
+    /// validate the claimant leaf.  The leaf format depends on
+    /// `merkle_leaf_version` in package metadata:
+    ///
+    /// - **v2** (default): `sha256(claimant_address_string || amount_be_bytes)`
+    ///   binds both the recipient *and* the specific package amount.
+    /// - **v1** (legacy): `sha256(claimant_address_string)` — address-only.
+    ///   Packages without an explicit `merkle_leaf_version` use v1 for
+    ///   backward compatibility.  New allowlists SHOULD set
+    ///   `merkle_leaf_version = "v2"`.
     ///
     /// For non-Merkle packages this still works as a direct claim when
     /// `claimant` equals the stored recipient.
@@ -1084,8 +1093,16 @@ impl AidEscrow {
             Some(root) => {
                 let expires_at =
                     Self::merkle_root_expires_at_from_metadata(&env, &package.metadata);
+                let leaf_version = Self::merkle_leaf_version_from_metadata(&env, &package.metadata);
                 Self::verify_merkle_proof_for_claimant(
-                    &env, &claimant, &proof, root, expires_at, now,
+                    &env,
+                    &claimant,
+                    &proof,
+                    root,
+                    expires_at,
+                    now,
+                    &leaf_version,
+                    package.amount,
                 )?;
                 Self::finalize_claim(&env, &key, &mut package, id, &claimant, &claimant, now)
             }
@@ -1767,6 +1784,16 @@ impl AidEscrow {
         }
     }
 
+    /// Reads the optional `merkle_leaf_version` metadata field.
+    /// Returns `"v1"` (address-only, legacy) when absent.
+    fn merkle_leaf_version_from_metadata(env: &Env, metadata: &Map<Symbol, String>) -> String {
+        let key = Symbol::new(env, META_MERKLE_LEAF_VERSION_KEY);
+        metadata
+            .get(key)
+            .unwrap_or_else(|| String::from_str(env, "v1"))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn verify_merkle_proof_for_claimant(
         env: &Env,
         claimant: &Address,
@@ -1774,6 +1801,8 @@ impl AidEscrow {
         expected_root: [u8; 32],
         expires_at: u64,
         now: u64,
+        leaf_version: &String,
+        amount: i128,
     ) -> Result<(), Error> {
         // Reject stale-but-active roots before doing any proof work. An
         // expiry of 0 means the allowlist never expires (legacy packages).
@@ -1781,7 +1810,13 @@ impl AidEscrow {
             return Err(Error::AllowlistExpired);
         }
 
-        let mut current = Self::hash_address(env, claimant);
+        let v2 = String::from_str(env, "v2");
+        let is_v2 = leaf_version == &v2;
+        let mut current = if is_v2 {
+            Self::hash_leaf_v2(env, claimant, amount)
+        } else {
+            Self::hash_address(env, claimant)
+        };
 
         for i in 0..proof.len() {
             let sibling_hex = match proof.get(i) {
@@ -1816,6 +1851,31 @@ impl AidEscrow {
 
         let mut data = Bytes::new(env);
         for b in raw[..len].iter() {
+            data.push_back(*b);
+        }
+
+        let digest = env.crypto().sha256(&data);
+        Self::hash_to_array(&digest)
+    }
+
+    /// v2 leaf: sha256(address_string || amount_big_endian_bytes).
+    ///
+    /// The amount is encoded as a big-endian i128 (16 bytes).  This binds the
+    /// leaf to both the recipient *and* the specific package amount, so a single
+    /// merkle root can authorise different amounts for different recipients.
+    fn hash_leaf_v2(env: &Env, address: &Address, amount: i128) -> [u8; 32] {
+        let addr = address.to_string();
+        let addr_len = addr.len() as usize;
+
+        // Encode amount as big-endian i128 (16 bytes).
+        let amount_bytes = amount.to_be_bytes();
+
+        let mut raw = [0u8; 112]; // 96 for address + 16 for amount
+        addr.copy_into_slice(&mut raw[..addr_len]);
+        raw[addr_len..addr_len + 16].copy_from_slice(&amount_bytes);
+
+        let mut data = Bytes::new(env);
+        for b in raw[..addr_len + 16].iter() {
             data.push_back(*b);
         }
 

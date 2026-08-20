@@ -6,9 +6,10 @@
  * The contract (app/onchain/contracts/aid_escrow/src/lib.rs) verifies proofs
  * with:
  *
- *   leaf  = sha256(<canonical Address string>)
- *   pair  = sha256(sorted(left, right))     // sorted = byte-wise ascending
- *   root  = the Merkle root built with that leaf and pairing rule
+ *   v1 leaf: sha256(<canonical Address string>)
+ *   v2 leaf: sha256(<canonical Address string> || <amount big-endian i128>)
+ *   pair:    sha256(sorted(left, right))     // sorted = byte-wise ascending
+ *   root:    the Merkle root built with that leaf and pairing rule
  *
  * Proofs are hex-encoded (64 lowercase hex chars, no 0x prefix), bottom-up,
  * one sibling per tree level. The `merkle_root` and `merkle_root_expires_at`
@@ -29,13 +30,38 @@ const path = require('path');
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest();
 
 /**
- * Contract-compatible leaf: sha256 of the exact bytes `Address::to_string()`
- * produces on-chain. The amount is intentionally NOT part of the leaf — the
- * contract's verifier only binds the claimant address (see
- * `hash_address` in src/lib.rs).
+ * v1 Contract-compatible leaf: sha256 of the exact bytes `Address::to_string()`
+ * produces on-chain.
  */
-function makeLeaf(addressString) {
+function makeLeafV1(addressString) {
   return sha256(Buffer.from(addressString, 'utf8'));
+}
+
+/**
+ * v2 Contract-compatible leaf: sha256(address_string || amount_be_bytes).
+ *
+ * The amount is encoded as a big-endian i128 (16 bytes), matching the
+ * on-chain `hash_leaf_v2` function in `aid_escrow/src/lib.rs`.
+ */
+function makeLeafV2(addressString, amount) {
+  const amountBuf = Buffer.alloc(16);
+  let val = BigInt(amount);
+  for (let i = 15; i >= 0; i--) {
+    amountBuf[i] = Number(val & 0xFFn);
+    val >>= 8n;
+  }
+  const addrBuf = Buffer.from(addressString, 'utf8');
+  return sha256(Buffer.concat([addrBuf, amountBuf]));
+}
+
+/**
+ * Creates a leaf based on the entry format.
+ * If entry has an `amount` field, uses v2 format; otherwise v1.
+ */
+function makeLeaf(entry) {
+  if (typeof entry === 'string') return makeLeafV1(entry);
+  if (entry.amount !== undefined) return makeLeafV2(entry.address, entry.amount);
+  return makeLeafV1(entry.address);
 }
 
 /** Contract-compatible pair combine: sort the two 32-byte hashes byte-wise
@@ -105,16 +131,20 @@ function main() {
     throw new Error('sample_allowlist.json must be a non-empty array of { address } entries');
   }
 
+  const hasAmount = sample.length > 0 && sample[0].amount !== undefined;
+  const leafVersion = hasAmount ? 'v2' : 'v1';
+
   const leaves = sample.map((entry) => {
     if (typeof entry.address !== 'string' || !/^[A-Z2-7]{56}$/.test(entry.address)) {
       throw new Error(`Invalid Stellar address in allowlist: ${entry.address}`);
     }
-    return makeLeaf(entry.address);
+    return makeLeaf(entry);
   });
 
   const root = buildRoot(leaves);
   const rootHex = toHex(root);
   console.log(`ROOT: ${rootHex}`);
+  console.log(`LEAF_VERSION: ${leafVersion}`);
 
   // 1) Valid proof for the first entry.
   const validIndex = 0;
@@ -158,7 +188,7 @@ function main() {
 
   // 3) Wrong recipient (a leaf for an address not in the tree).
   const stranger = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
-  const wrongLeaf = makeLeaf(stranger);
+  const wrongLeaf = makeLeaf({ address: stranger, amount: hasAmount ? sample[0].amount : undefined });
   const wrongRecipientValid = verify(wrongLeaf, proof, root);
   console.log(
     JSON.stringify({
@@ -216,6 +246,7 @@ function main() {
   //    metadata and distributing per-recipient proofs).
   const entries = sample.map((entry, i) => ({
     address: entry.address,
+    ...(hasAmount ? { amount: entry.amount } : {}),
     proof: buildProof(leaves, i).map(toHex),
   }));
   console.log(JSON.stringify({ scenario: 'proofs', entries }));

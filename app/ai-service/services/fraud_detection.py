@@ -9,7 +9,7 @@ import logging
 from typing import List
 
 import numpy as np
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder
 from sklearn.neighbors import LocalOutlierFactor
 
 from schemas.fraud import ClaimMetadata, ClaimFraudResult
@@ -26,7 +26,7 @@ MODEL_VERSION = "fraud-v1.1"
 
 
 def _vectorize(claims: List[ClaimMetadata]) -> np.ndarray:
-    """Convert claim metadata into a normalised numeric feature matrix."""
+    """Convert claim metadata into a numeric feature matrix."""
     ip_enc = LabelEncoder()
     hash_enc = LabelEncoder()
     loc_enc = LabelEncoder()
@@ -40,18 +40,12 @@ def _vectorize(claims: List[ClaimMetadata]) -> np.ndarray:
     hash_enc.fit(hashes)
     loc_enc.fit(locs)
 
-    raw = np.column_stack([
+    return np.column_stack([
         ip_enc.transform(ips).astype(float),
         hash_enc.transform(hashes).astype(float),
         loc_enc.transform(locs).astype(float),
         np.array(amounts, dtype=float),
     ])
-
-    # Standardise every column so Euclidean distance in LOF is not
-    # dominated by whichever column has the largest range (e.g. raw
-    # token amounts vs. small integer codes).
-    scaler = StandardScaler()
-    return scaler.fit_transform(raw)
 
 
 def detect_fraud(claims: List[ClaimMetadata]) -> List[ClaimFraudResult]:

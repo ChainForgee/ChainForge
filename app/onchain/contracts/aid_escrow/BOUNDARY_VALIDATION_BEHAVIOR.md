@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the expected behavior of claim timing validation on the ChainForge platform, specifically for Testnet ledgers. It covers claim start time boundaries, expiry boundaries, and auto-expiry logic.
+This document describes the expected behavior of claim timing validation on the ChainForge platform, specifically for Testnet ledgers. It covers claim start time boundaries, expiry boundaries, and late-claim expiry-sweep behavior.
 
 ## Onchain Contract Behavior (Soroban)
 
@@ -26,18 +26,18 @@ The onchain contract enforces the following timing rules:
 - **Validation**:
   - If `expires_at > 0`, must be > `created_at`
   - Must respect `config.max_expires_in` if configured
-- **Claim Validation**: Claim attempts where `expires_at > 0 && now > expires_at` trigger auto-expiry
+- **Claim Validation**: Claim attempts where `expires_at > 0 && now > expires_at` return `Error::PackageExpired` without mutating state
 
 #### 3. Late Claim Behavior
 
-**Important**: When a claim is attempted after expiry, the contract returns an error but does **NOT** automatically update the package status to `Expired`. The package status remains `Created`.
+**Important**: When a claim is attempted after expiry, the contract returns `Error::PackageExpired` and leaves the package in `Created`. Soroban reverts all storage writes when a function returns an error, so a claim attempt **cannot** atomically mark the package `Expired` and return an error in the same call.
 
 - **Trigger**: Any claim attempt (`claim()` or `claim_with_proof()`) where `expires_at > 0 && now > expires_at`
-- **State Change**: Package status remains `Created` (no automatic transition)
+- **State Change**: None — package status remains `Created`
 - **Error Returned**: `Error::PackageExpired`
-- **Persistence**: Since status doesn't change, if time is reverted, the package can still be claimed
-- **Subsequent Attempts**: Further claim attempts will continue to return `Error::PackageExpired` as long as `now > expires_at`
-- **Status Transition**: Package status only transitions to `Expired` through other operations (e.g., `refund()` can transition a `Created` package to `Expired`)
+- **Expiry sweep**: `expire_if_past_due(id)` is a permissionless entrypoint that transitions a past-due `Created` package to `Expired`, releases its locked funds, and moves its aggregate totals from `Created` to the expired/cancelled bucket. It is idempotent and returns `Ok`.
+- **Refund**: `refund(id)` converts an `Expired` (or `Cancelled`) package to `Refunded` and transfers the funds to the admin, without double-releasing locked funds.
+- **Persistence**: Because the late claim leaves status `Created`, a time revert to within the window still allows a successful claim; once `expire_if_past_due` has run, the package is permanently `Expired`.
 
 ### Boundary Conditions
 
@@ -99,11 +99,11 @@ The backend runs an automated cleanup process:
 
 | Aspect | Backend | Onchain |
 |--------|---------|---------|
-| Trigger | Cron job (hourly) | Claim attempt |
-| Status Change | `requested/verified` → `archived` | `Created` → `Expired` |
-| Timing | After expiry (batch cleanup) | At claim attempt (immediate) |
+| Trigger | Cron job (hourly) | `expire_if_past_due(id)` (permissionless) or `refund(id)` |
+| Status Change | `requested/verified` → `archived` | `Created` → `Expired` (then `Refunded` on admin refund) |
+| Timing | After expiry (batch cleanup) | On demand (any account may sweep) |
 | Reversibility | No (archived) | No (permanent) |
-| Fund Recovery | Attempts revoke/refund | Requires manual refund by admin |
+| Fund Recovery | Attempts revoke/refund | `refund(id)` transfers funds to admin |
 
 ## Frontend Display Behavior
 
@@ -170,8 +170,8 @@ New comprehensive boundary validation tests have been added in `tests/boundary_v
 2. **Expiry Boundaries**:
    - `succeeds_when_claimed_1_second_before_expiry`
    - `succeeds_when_claimed_at_exact_expiry`
-   - `fails_when_claimed_1_second_after_expiry_with_auto_expire`
-   - `fails_when_claimed_long_after_expiry_with_auto_expire`
+   - `fails_when_claimed_1_second_after_expiry`
+   - `fails_when_claimed_long_after_expiry`
 
 3. **Combined Boundaries**:
    - `fails_when_claim_starts_at_equals_expires_at_and_claimed_before`
@@ -180,10 +180,12 @@ New comprehensive boundary validation tests have been added in `tests/boundary_v
    - `narrow_claim_window_1_second`
    - `zero_claim_window_fails_creation`
 
-4. **Auto-Expiry Behavior**:
-   - `package_status_auto_expires_on_first_late_claim_attempt`
-   - `auto_expired_package_cannot_be_claimed_even_if_time_reverted`
-   - `claim_with_proof_also_auto_expires_on_late_attempt`
+4. **Late Claim / Expiry Sweep Behavior**:
+   - `late_claim_returns_error_without_transitioning`
+   - `claim_with_proof_fails_after_expiry_without_transitioning`
+   - `expire_if_past_due_transitions_and_moves_accounting`
+   - `expire_if_past_due_ignores_never_expiring_and_missing_packages`
+   - `refund_after_expiry_does_not_unlock_other_packages`
 
 5. **Edge Cases**:
    - `package_with_zero_expiry_never_expires`
@@ -206,10 +208,10 @@ Existing test coverage includes:
    - Confirm exact boundary behavior matches expectations
    - Test with real ledger timestamps (not just mocked)
 
-2. **Monitor Auto-Expiry**:
+2. **Monitor Expiry Sweep**:
    - Deploy a test package with short expiry (e.g., 1 hour)
-   - Attempt claim after expiry to verify auto-expiry
-   - Check that status updates correctly on-chain
+   - Attempt a claim after expiry and confirm it returns `Error::PackageExpired`
+   - Call `expire_if_past_due(id)` and check the package transitions to `Expired` and locked/aggregate totals move
 
 3. **Frontend Integration**:
    - Test claim button enable/disable at exact boundaries
@@ -240,8 +242,8 @@ After Testnet deployment, monitor:
 
 The claim window and expiry boundary validation is implemented with the following key behaviors:
 
-- **Onchain**: Immediate validation at claim attempt with auto-expiry on late claims
+- **Onchain**: Immediate validation at claim attempt; late claims return `Error::PackageExpired`, and the permissionless `expire_if_past_due(id)` entrypoint performs the `Created → Expired` transition and its accounting
 - **Backend**: Batch cleanup of expired claims via hourly cron job
 - **Frontend**: Visual indicators and countdown timers for claim windows
 
-The boundary conditions are well-defined and tested, with the critical behavior being that late claim attempts automatically expire the package status on-chain.
+The boundary conditions are well-defined and tested. Late claim attempts return `Error::PackageExpired` without mutating state (Soroban reverts writes on error); the idempotent, permissionless `expire_if_past_due(id)` entrypoint performs the `Created → Expired` transition and its accounting.

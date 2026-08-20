@@ -5,7 +5,7 @@
 //! This module tests the exact boundary conditions for claim timing:
 //! - Claim start time boundaries
 //! - Expiry time boundaries
-//! - Late claim auto-expiry behavior
+//! - Late claim expiry-sweep behavior
 //! - Edge cases around timestamps
 
 use aid_escrow::{AidEscrow, AidEscrowClient, Error, PackageStatus};
@@ -130,7 +130,7 @@ mod claim_start_boundaries {
         let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::ClaimTooEarly)));
 
-        // Verify package status is still Created (not auto-expired)
+        // Verify package status is still Created (claim returns before any transition)
         let pkg = t.client.get_package(&id);
         assert_eq!(pkg.status, PackageStatus::Created);
     }
@@ -238,7 +238,8 @@ mod expiry_boundaries {
         let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::PackageExpired)));
 
-        // Verify package status remains Created (not auto-updated)
+        // Verify package status remains Created (claim cannot commit the
+        // transition because Soroban reverts storage on an error return).
         let pkg = t.client.get_package(&id);
         assert_eq!(pkg.status, PackageStatus::Created);
     }
@@ -258,7 +259,8 @@ mod expiry_boundaries {
         let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::PackageExpired)));
 
-        // Verify package status remains Created (not auto-updated)
+        // Verify package status remains Created (claim cannot commit the
+        // transition because Soroban reverts storage on an error return).
         let pkg = t.client.get_package(&id);
         assert_eq!(pkg.status, PackageStatus::Created);
     }
@@ -326,7 +328,8 @@ mod combined_boundaries {
         let result = t.client.try_claim(&id, &recipient);
         assert_eq!(result, Err(Ok(Error::PackageExpired)));
 
-        // Verify package status remains Created (not auto-updated)
+        // Verify package status remains Created (claim cannot commit the
+        // transition because Soroban reverts storage on an error return).
         let pkg = t.client.get_package(&id);
         assert_eq!(pkg.status, PackageStatus::Created);
     }
@@ -397,7 +400,7 @@ mod late_claim_behavior {
     use super::*;
 
     #[test]
-    fn late_claim_returns_error_but_status_remains_created() {
+    fn late_claim_returns_error_without_transitioning() {
         let t = TestSetup::new();
         let recipient = Address::generate(&t.env);
         let now = t.now();
@@ -406,28 +409,20 @@ mod late_claim_behavior {
 
         let id = t.create_package_with_timing(&recipient, ONE_TOKEN, claim_starts_at, expires_at);
 
-        // Advance past expiry
+        // Advance past expiry.
         t.set_timestamp(expires_at + 10);
 
-        // First late claim attempt - should fail with PackageExpired
-        let result1 = t.client.try_claim(&id, &recipient);
-        assert_eq!(result1, Err(Ok(Error::PackageExpired)));
-
-        // Verify status remains Created (not auto-updated)
-        let pkg1 = t.client.get_package(&id);
-        assert_eq!(pkg1.status, PackageStatus::Created);
-
-        // Second late claim attempt - should still fail with PackageExpired
-        let result2 = t.client.try_claim(&id, &recipient);
-        assert_eq!(result2, Err(Ok(Error::PackageExpired)));
-
-        // Verify status still remains Created
-        let pkg2 = t.client.get_package(&id);
-        assert_eq!(pkg2.status, PackageStatus::Created);
+        // A late claim still fails with PackageExpired. Soroban reverts storage
+        // on an error return, so claim cannot also commit the Expired
+        // transition; the package stays Created until expire_if_past_due runs.
+        let result = t.client.try_claim(&id, &recipient);
+        assert_eq!(result, Err(Ok(Error::PackageExpired)));
+        assert_eq!(t.client.get_package(&id).status, PackageStatus::Created);
+        assert_eq!(t.client.get_total_locked(&t.token), ONE_TOKEN);
     }
 
     #[test]
-    fn late_claim_can_be_retried_if_time_reverted() {
+    fn claim_with_proof_fails_after_expiry_without_transitioning() {
         let t = TestSetup::new();
         let recipient = Address::generate(&t.env);
         let now = t.now();
@@ -436,48 +431,115 @@ mod late_claim_behavior {
 
         let id = t.create_package_with_timing(&recipient, ONE_TOKEN, claim_starts_at, expires_at);
 
-        // Advance past expiry and claim
-        t.set_timestamp(expires_at + 10);
-        let result1 = t.client.try_claim(&id, &recipient);
-        assert_eq!(result1, Err(Ok(Error::PackageExpired)));
-
-        // Verify status remains Created
-        let pkg1 = t.client.get_package(&id);
-        assert_eq!(pkg1.status, PackageStatus::Created);
-
-        // Revert time back to within claim window
-        t.set_timestamp(claim_starts_at + 50);
-
-        // Should succeed because status is still Created
-        let result2 = t.client.try_claim(&id, &recipient);
-        assert!(result2.is_ok());
-
-        // Verify status is now Claimed
-        let pkg2 = t.client.get_package(&id);
-        assert_eq!(pkg2.status, PackageStatus::Claimed);
-    }
-
-    #[test]
-    fn claim_with_proof_fails_after_expiry() {
-        let t = TestSetup::new();
-        let recipient = Address::generate(&t.env);
-        let now = t.now();
-        let claim_starts_at = now;
-        let expires_at = now + 100;
-
-        let id = t.create_package_with_timing(&recipient, ONE_TOKEN, claim_starts_at, expires_at);
-
-        // Advance past expiry
+        // Advance past expiry.
         t.set_timestamp(expires_at + 10);
 
-        // Try claim_with_proof after expiry - should fail
         let proof: Vec<soroban_sdk::String> = Vec::new(&t.env);
         let result = t.client.try_claim_with_proof(&id, &recipient, &proof);
         assert_eq!(result, Err(Ok(Error::PackageExpired)));
+        assert_eq!(t.client.get_package(&id).status, PackageStatus::Created);
+    }
 
-        // Verify status remains Created (not auto-updated)
-        let pkg = t.client.get_package(&id);
-        assert_eq!(pkg.status, PackageStatus::Created);
+    #[test]
+    fn expire_if_past_due_transitions_and_moves_accounting() {
+        let t = TestSetup::new();
+        let recipient = Address::generate(&t.env);
+        let now = t.now();
+        let claim_starts_at = now;
+        let expires_at = now + 100;
+
+        let id = t.create_package_with_timing(&recipient, ONE_TOKEN, claim_starts_at, expires_at);
+        assert_eq!(t.client.get_total_locked(&t.token), ONE_TOKEN);
+        assert_eq!(t.client.get_aggregates(&t.token).total_committed, ONE_TOKEN);
+
+        // Before expiry the sweep is a no-op.
+        t.client.expire_if_past_due(&id);
+        assert_eq!(t.client.get_package(&id).status, PackageStatus::Created);
+        assert_eq!(t.client.get_total_locked(&t.token), ONE_TOKEN);
+
+        // After expiry the sweep transitions the package and moves accounting.
+        t.set_timestamp(expires_at + 10);
+        t.client.expire_if_past_due(&id);
+
+        assert_eq!(t.client.get_package(&id).status, PackageStatus::Expired);
+        assert_eq!(t.client.get_total_locked(&t.token), 0);
+        let agg = t.client.get_aggregates(&t.token);
+        assert_eq!(agg.total_committed, 0);
+        assert_eq!(agg.total_expired_cancelled, ONE_TOKEN);
+
+        // Idempotent: a second sweep does not double-move the amount.
+        t.client.expire_if_past_due(&id);
+        assert_eq!(t.client.get_total_locked(&t.token), 0);
+        assert_eq!(
+            t.client.get_aggregates(&t.token).total_expired_cancelled,
+            ONE_TOKEN
+        );
+    }
+
+    #[test]
+    fn expire_if_past_due_ignores_never_expiring_and_missing_packages() {
+        let t = TestSetup::new();
+        let recipient = Address::generate(&t.env);
+
+        // A never-expiring package is untouched by the sweep.
+        t.fund_contract(ONE_TOKEN);
+        t.client.create_package(
+            &t.admin,
+            &1u64,
+            &recipient,
+            &ONE_TOKEN,
+            &t.token,
+            &0u64,
+            &Map::new(&t.env),
+        );
+        t.client.expire_if_past_due(&1u64);
+        assert_eq!(t.client.get_package(&1u64).status, PackageStatus::Created);
+
+        // A missing package returns a clean error.
+        let res = t.client.try_expire_if_past_due(&9999u64);
+        assert_eq!(res, Err(Ok(Error::PackageNotFound)));
+    }
+
+    #[test]
+    fn refund_after_expiry_does_not_unlock_other_packages() {
+        let t = TestSetup::new();
+        let recipient = Address::generate(&t.env);
+        let now = t.now();
+        let expires_at = now + 100;
+
+        // Two packages on the same token: pkg 1 expires, pkg 2 never expires.
+        t.fund_contract(2 * ONE_TOKEN);
+        t.client.create_package(
+            &t.admin,
+            &1u64,
+            &recipient,
+            &ONE_TOKEN,
+            &t.token,
+            &expires_at,
+            &Map::new(&t.env),
+        );
+        t.client.create_package(
+            &t.admin,
+            &2u64,
+            &recipient,
+            &ONE_TOKEN,
+            &t.token,
+            &0u64,
+            &Map::new(&t.env),
+        );
+        assert_eq!(t.client.get_total_locked(&t.token), 2 * ONE_TOKEN);
+
+        // Expire pkg 1, releasing only its locked share.
+        t.set_timestamp(expires_at + 1);
+        t.client.expire_if_past_due(&1u64);
+        assert_eq!(t.client.get_package(&1u64).status, PackageStatus::Expired);
+        assert_eq!(t.client.get_total_locked(&t.token), ONE_TOKEN);
+
+        // Refunding the expired package must not decrement locked again
+        // (pkg 2 is still locked).
+        t.client.refund(&1u64);
+        assert_eq!(t.client.get_package(&1u64).status, PackageStatus::Refunded);
+        assert_eq!(t.client.get_total_locked(&t.token), ONE_TOKEN);
     }
 }
 

@@ -24,7 +24,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --config ./test/jest-coverage.js --coverage",
-    "test:signing": "jest --testPathPattern='soroban\\.adapter\\.signing\\.spec'",
+    "test:signing": "jest --testPathPatterns='soroban\\.adapter\\.signing\\.spec'",
     "coverage:baseline": "node ./test/generate-coverage-baseline.js",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",

@@ -9,7 +9,7 @@ import logging
 from typing import List
 
 import numpy as np
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.neighbors import LocalOutlierFactor
 
 from schemas.fraud import ClaimMetadata, ClaimFraudResult
@@ -19,9 +19,14 @@ logger = logging.getLogger(__name__)
 # Claims with LOF score above this threshold are flagged
 _OUTLIER_THRESHOLD = -1.5
 
+# Version of the scoring pipeline — surfaced in the response so downstream
+# consumers can detect silent model drift.  Bump when the feature
+# representation or decision rule changes.
+MODEL_VERSION = "fraud-v1.1"
+
 
 def _vectorize(claims: List[ClaimMetadata]) -> np.ndarray:
-    """Convert claim metadata into a numeric feature matrix."""
+    """Convert claim metadata into a normalised numeric feature matrix."""
     ip_enc = LabelEncoder()
     hash_enc = LabelEncoder()
     loc_enc = LabelEncoder()
@@ -35,12 +40,18 @@ def _vectorize(claims: List[ClaimMetadata]) -> np.ndarray:
     hash_enc.fit(hashes)
     loc_enc.fit(locs)
 
-    return np.column_stack([
-        ip_enc.transform(ips),
-        hash_enc.transform(hashes),
-        loc_enc.transform(locs),
-        amounts,
-    ]).astype(float)
+    raw = np.column_stack([
+        ip_enc.transform(ips).astype(float),
+        hash_enc.transform(hashes).astype(float),
+        loc_enc.transform(locs).astype(float),
+        np.array(amounts, dtype=float),
+    ])
+
+    # Standardise every column so Euclidean distance in LOF is not
+    # dominated by whichever column has the largest range (e.g. raw
+    # token amounts vs. small integer codes).
+    scaler = StandardScaler()
+    return scaler.fit_transform(raw)
 
 
 def detect_fraud(claims: List[ClaimMetadata]) -> List[ClaimFraudResult]:
@@ -55,17 +66,21 @@ def detect_fraud(claims: List[ClaimMetadata]) -> List[ClaimFraudResult]:
         return [ClaimFraudResult(claim_id=claims[0].claim_id, fraud_risk_score=0.0, is_flagged=False)]
 
     X = _vectorize(claims)
-   
+
     # Add tiny random noise to prevent identical point degeneracy and zero-distance division issues
     np.random.seed(42)
     X_noise = X + np.random.normal(0, 1e-5, X.shape)
 
-    n_neighbors = min(20, max(2, len(claims) // 2))
+    # n_neighbors must be strictly less than n_samples for LOF.
+    # For very small batches (2-3 claims) use n_neighbors = 1 so LOF
+    # still produces a meaningful local density estimate.
+    n_samples = len(claims)
+    n_neighbors = min(20, max(1, n_samples - 1))
     lof = LocalOutlierFactor(n_neighbors=n_neighbors, contamination="auto")
     lof.fit_predict(X_noise)
     raw_scores: np.ndarray = lof.negative_outlier_factor_  # negative; more negative = more anomalous
 
-    # Normalise to [0, 1]: most anomalous → 1, most normal → 0
+    # Normalise to [0, 1]: most anomalous -> 1, most normal -> 0
     min_s, max_s = raw_scores.min(), raw_scores.max()
     if max_s == min_s:
         normalised = np.zeros(len(raw_scores))

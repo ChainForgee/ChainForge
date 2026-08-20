@@ -25,3 +25,4 @@ class ClaimFraudResult(BaseModel):
 class FraudDetectionResponse(BaseModel):
     results: List[ClaimFraudResult]
     flagged_count: int
+    model_version: Optional[str] = None

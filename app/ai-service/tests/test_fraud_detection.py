@@ -57,6 +57,30 @@ class TestFraudDetectionEndpoint:
         results = {r["claim_id"]: r["fraud_risk_score"] for r in resp.json()["results"]}
         assert results["outlier"] > results["c0"]
 
+    def test_two_claim_batch_does_not_crash(self):
+        """Two-claim batch must not raise ValueError from LOF."""
+        payload = {"claims": [
+            {"claim_id": "a", "ip_address": "1.2.3.4", "amount": 100.0},
+            {"claim_id": "b", "ip_address": "5.6.7.8", "amount": 200.0},
+        ]}
+        resp = client.post("/v1/fraud/detect", json=payload)
+        assert resp.status_code == 200
+        assert len(resp.json()["results"]) == 2
+
+    def test_three_claim_batch_does_not_crash(self):
+        """Three-claim batch must not raise ValueError from LOF."""
+        payload = {"claims": _make_claims(3)}
+        resp = client.post("/v1/fraud/detect", json=payload)
+        assert resp.status_code == 200
+        assert len(resp.json()["results"]) == 3
+
+    def test_model_version_in_response(self):
+        payload = {"claims": _make_claims(3)}
+        resp = client.post("/v1/fraud/detect", json=payload)
+        data = resp.json()
+        assert "model_version" in data
+        assert data["model_version"] is not None
+
 
 class TestFraudDetectionService:
     def test_single_claim(self):
@@ -70,3 +94,35 @@ class TestFraudDetectionService:
         results = detect_fraud(claims)
         for r in results:
             assert 0.0 <= r.fraud_risk_score <= 1.0
+
+    def test_two_claims_no_crash(self):
+        claims = [
+            ClaimMetadata(claim_id="a", ip_address="1.1.1.1", amount=10.0),
+            ClaimMetadata(claim_id="b", ip_address="2.2.2.2", amount=20.0),
+        ]
+        results = detect_fraud(claims)
+        assert len(results) == 2
+        for r in results:
+            assert 0.0 <= r.fraud_risk_score <= 1.0
+
+    def test_three_claims_no_crash(self):
+        claims = [
+            ClaimMetadata(claim_id="a", ip_address="1.1.1.1", amount=10.0),
+            ClaimMetadata(claim_id="b", ip_address="2.2.2.2", amount=20.0),
+            ClaimMetadata(claim_id="c", ip_address="3.3.3.3", amount=30.0),
+        ]
+        results = detect_fraud(claims)
+        assert len(results) == 3
+        for r in results:
+            assert 0.0 <= r.fraud_risk_score <= 1.0
+
+    def test_outlier_flagged_in_batch(self):
+        """A constructed outlier should be flagged, homogeneous batch should not."""
+        claims = [
+            ClaimMetadata(claim_id=f"n{i}", ip_address="1.1.1.1", amount=100.0)
+            for i in range(8)
+        ]
+        claims.append(ClaimMetadata(claim_id="outlier", ip_address="99.99.99.99", amount=99999.0))
+        results = detect_fraud(claims)
+        by_id = {r.claim_id: r for r in results}
+        assert by_id["outlier"].fraud_risk_score > by_id["n0"].fraud_risk_score

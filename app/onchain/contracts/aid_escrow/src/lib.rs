@@ -1631,7 +1631,9 @@ impl AidEscrow {
             return Err(Error::AllowlistExpired);
         }
 
-        let mut current = if leaf_version == "v2" {
+        let v2 = String::from_str(env, "v2");
+        let is_v2 = leaf_version == &v2;
+        let mut current = if is_v2 {
             Self::hash_leaf_v2(env, claimant, amount)
         } else {
             Self::hash_address(env, claimant)

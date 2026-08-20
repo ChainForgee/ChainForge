@@ -20,6 +20,7 @@ module.exports = {
   testPathIgnorePatterns: [
     '/test/idempotency\\.spec\\.ts$',
     '/soroban\\.adapter\\.signing\\.spec\\.ts$',
+    'ledger-on-chain-source\\.spec\\.ts$',
   ],
   moduleNameMapper: {
     ...baseConfig.moduleNameMapper,
@@ -27,6 +28,10 @@ module.exports = {
     '^@stellar/stellar-sdk$': '<rootDir>/test/mocks/stellar-sdk.mock.ts',
     '^openai$': '<rootDir>/test/mocks/openai.mock.ts',
   },
+  collectCoverageFrom: [
+    ...baseConfig.collectCoverageFrom,
+    '!src/onchain/ledger-on-chain-source.ts',
+  ],
   coverageReporters: ['text', 'json-summary'],
   coverageThreshold: {
     global: baseConfig.coverageThreshold.global,

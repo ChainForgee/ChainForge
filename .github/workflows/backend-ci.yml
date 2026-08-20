@@ -85,6 +85,15 @@ jobs:
           REDIS_PORT: '6379'
         run: pnpm --filter backend run test:signing
 
+      - name: Test crypto specs (real SDK, no mock)
+        env:
+          API_KEY: test-api-key-123
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chainforge_test?schema=public
+          NODE_ENV: test
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: '6379'
+        run: pnpm --filter backend run test:crypto-specs
+
       - name: Build
         run: pnpm --filter backend run build
 

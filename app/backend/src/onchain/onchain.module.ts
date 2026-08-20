@@ -9,6 +9,10 @@ import { OnchainProcessor } from './onchain.processor';
 import { OnchainService } from './onchain.service';
 import { LedgerBackfillService } from './ledger-backfill.service';
 import { LedgerReconciliationService } from './ledger-reconciliation.service';
+import {
+  LEDGER_ON_CHAIN_SOURCE,
+  SorobanLedgerOnChainSource,
+} from './ledger-on-chain-source';
 import { LedgerAdminController } from './ledger-admin.controller';
 import { JobsModule } from '../jobs/jobs.module';
 import { LoggerModule } from '../logger/logger.module';
@@ -68,6 +72,10 @@ const onchainAdapterProvider: Provider = {
     OnchainService,
     LedgerBackfillService,
     LedgerReconciliationService,
+    {
+      provide: LEDGER_ON_CHAIN_SOURCE,
+      useClass: SorobanLedgerOnChainSource,
+    },
   ],
   exports: [
     ONCHAIN_ADAPTER_TOKEN,

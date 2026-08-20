@@ -3,6 +3,27 @@ import { AidDetails, fetchAidDetails, submitClaim } from './aidApi';
 
 import { config } from '../config';
 
+/**
+ * Credential-refresh callback for evidence uploads whose signed URLs or
+ * auth headers have expired.  Return the fresh URL/headers, or `null` if
+ * the upload should be treated as a permanent failure (e.g. the server
+ * refused to re-issue credentials).
+ */
+export type RefreshEvidenceUpload = (
+  aidId: string,
+) => Promise<{ url: string; method?: 'POST' | 'PUT' | 'PATCH'; headers?: Record<string, string> } | null>;
+
+let _refreshEvidenceUpload: RefreshEvidenceUpload | null = null;
+
+/**
+ * Register a credential-refresh callback for evidence uploads.  The queue
+ * invokes this when a retry fails with a credential-expiry error (401/403
+ * with an expiry-related message) instead of replaying the frozen URL.
+ */
+export const registerEvidenceUploadRefresh = (fn: RefreshEvidenceUpload) => {
+  _refreshEvidenceUpload = fn;
+};
+
 const API_URL = config.apiUrl;
 
 const SYNC_QUEUE_STORAGE_KEY = '@chainforge/sync-queue';
@@ -155,6 +176,24 @@ const isRetryableError = (error: unknown) => {
     message.includes('500') ||
     message.includes('429')
   );
+};
+
+/**
+ * Detect HTTP credential-expiry errors (401 / 403 with an expiry-related
+ * hint).  These are retryable *with credential refresh*, whereas a plain
+ * 403 from a bad upload body is permanent.
+ */
+const isCredentialExpiredError = (error: unknown) => {
+  const message = toErrorMessage(error).toLowerCase();
+  const isAuthStatus = message.includes('401') || message.includes('403');
+  const expiryHint =
+    message.includes('expired') ||
+    message.includes('expir') ||
+    message.includes('token') ||
+    message.includes('unauthorized') ||
+    message.includes('forbidden') ||
+    message.includes('credential');
+  return isAuthStatus && expiryHint;
 };
 
 const hydrateQueue = async () => {
@@ -387,6 +426,46 @@ export const flushPendingNetworkActions = async (options?: { online?: boolean; s
           }),
         );
       } catch (error) {
+        // For evidence-upload actions, attempt credential refresh on
+        // expiry-related failures before counting the retry.
+        if (
+          action.type === 'evidence-upload' &&
+          isCredentialExpiredError(error) &&
+          _refreshEvidenceUpload
+        ) {
+          const payload = action.payload as EvidenceUploadPayload;
+          try {
+            const refreshed = await _refreshEvidenceUpload(payload.aidId);
+            if (refreshed) {
+              // Re-enqueue with fresh credentials so the next flush cycle
+              // uses the updated URL / headers instead of the stale ones.
+              items = items.map((item) =>
+                item.id === action.id
+                  ? {
+                      ...item,
+                      payload: {
+                        ...payload,
+                        url: refreshed.url,
+                        method: refreshed.method ?? payload.method,
+                        headers: refreshed.headers ?? payload.headers,
+                      } as EvidenceUploadPayload,
+                      state: 'retrying' as SyncActionState,
+                      nextRetryAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                      lastError: null,
+                    }
+                  : item,
+              );
+              queueState = { ...queueState, items, lastSyncError: null };
+              await persistQueue();
+              emitQueueState();
+              continue;
+            }
+          } catch {
+            // Refresh itself failed; fall through to normal retry logic.
+          }
+        }
+
         const retryCount = action.retryCount + 1;
         const nextState: SyncActionState =
           retryCount >= action.maxRetries || !isRetryableError(error) ? 'failed' : 'retrying';

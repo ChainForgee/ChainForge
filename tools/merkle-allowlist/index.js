@@ -1,8 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const { ethers } = require('ethers');
+const crypto = require('crypto');
 const { MerkleTree } = require('merkletreejs');
-const keccak256 = require('keccak256');
 
 const RPC_URL = process.env.TESTNET_RPC_URL;
 const CONTRACT_ADDRESS = process.env.MERKLE_CONTRACT_ADDRESS;
@@ -32,11 +31,30 @@ async function withRetry(fn, desc) {
   throw lastErr;
 }
 
+/**
+ * Build a v2 Merkle leaf: sha256(address_string || amount_be_bytes).
+ *
+ * The amount is encoded as a big-endian i128 (16 bytes), matching the
+ * on-chain `hash_leaf_v2` function in `aid_escrow/src/lib.rs`.
+ */
 function makeLeaf(entry) {
-  // Standard leaf encoding: keccak256(abi.encodePacked(address, amount))
-  return ethers.utils.keccak256(
-    ethers.utils.defaultAbiCoder.encode(['address', 'uint256'], [entry.address.toLowerCase(), ethers.BigNumber.from(entry.amount).toString()])
-  );
+  const address = entry.address.toLowerCase();
+  const amount = BigInt(entry.amount);
+
+  // amount as 16-byte big-endian i128
+  const amountBuf = Buffer.alloc(16);
+  // Write as unsigned big-endian; for negative amounts we would need two's
+  // complement, but amounts are always positive in this domain.
+  let val = amount;
+  for (let i = 15; i >= 0; i--) {
+    amountBuf[i] = Number(val & 0xFFn);
+    val >>= 8n;
+  }
+
+  const addrBuf = Buffer.from(address, 'utf8');
+  const leafInput = Buffer.concat([addrBuf, amountBuf]);
+
+  return '0x' + crypto.createHash('sha256').update(leafInput).digest('hex');
 }
 
 function formatResult({ success, code, message, details }) {
@@ -48,6 +66,7 @@ function formatResult({ success, code, message, details }) {
 
 async function maybeCallOnchain(proof, leaf, root) {
   if (!RPC_URL || !CONTRACT_ADDRESS || !CONTRACT_ABI_PATH) return { skipped: true };
+  const { ethers } = require('ethers');
   const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
   const abiRaw = fs.readFileSync(path.resolve(CONTRACT_ABI_PATH), 'utf8');
   let abi;
@@ -64,15 +83,15 @@ async function maybeCallOnchain(proof, leaf, root) {
 
 async function run() {
   const sample = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'sample_allowlist.json')));
-  const leaves = sample.map((e) => Buffer.from(ethers.utils.arrayify(makeLeaf(e))));
-  const tree = new MerkleTree(leaves, keccak256, { sortPairs: true });
+  const leaves = sample.map((e) => Buffer.from(makeLeaf(e).slice(2), 'hex'));
+  const tree = new MerkleTree(leaves, (buf) => crypto.createHash('sha256').update(buf).digest(), { sortPairs: true });
   const root = tree.getHexRoot();
   console.log('ROOT:', root);
 
   // Pick a valid entry
   const entry = sample[0];
   const leafHex = makeLeaf(entry);
-  const leafBuf = Buffer.from(ethers.utils.arrayify(leafHex));
+  const leafBuf = Buffer.from(leafHex.slice(2), 'hex');
   const proof = tree.getHexProof(leafBuf);
 
   // 1) Valid proof
@@ -99,21 +118,21 @@ async function run() {
   // 3) Wrong recipient (use a different address in leaf)
   const wrongRecipient = { address: '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', amount: entry.amount };
   const wrongLeaf = makeLeaf(wrongRecipient);
-  const wrongLeafBuf = Buffer.from(ethers.utils.arrayify(wrongLeaf));
+  const wrongLeafBuf = Buffer.from(wrongLeaf.slice(2), 'hex');
   const wrongRecipientValid = tree.verify(proof, wrongLeafBuf, root);
   console.log(JSON.stringify({ scenario: 'wrong_recipient', result: formatResult({ success: wrongRecipientValid, code: wrongRecipientValid ? 'OK' : 'WRONG_RECIPIENT', message: wrongRecipientValid ? 'Unexpectedly valid' : 'Proof does not match recipient' }), proof, leaf: wrongLeaf, root }));
 
   // 4) Wrong leaf (modify amount)
-  const wrongAmount = { address: entry.address, amount: (Number(entry.amount) + 99).toString() };
+  const wrongAmount = { address: entry.address, amount: (BigInt(entry.amount) + 99n).toString() };
   const wrongLeaf2 = makeLeaf(wrongAmount);
-  const wrongLeaf2Buf = Buffer.from(ethers.utils.arrayify(wrongLeaf2));
+  const wrongLeaf2Buf = Buffer.from(wrongLeaf2.slice(2), 'hex');
   const wrongLeafValid = tree.verify(proof, wrongLeaf2Buf, root);
   console.log(JSON.stringify({ scenario: 'wrong_leaf', result: formatResult({ success: wrongLeafValid, code: wrongLeafValid ? 'OK' : 'WRONG_LEAF', message: wrongLeafValid ? 'Unexpectedly valid' : 'Leaf data mismatch' }), proof, leaf: wrongLeaf2, root }));
 
   // 5) Mismatched root (use a root from a different tree)
   const altSample = sample.slice().reverse();
-  const altLeaves = altSample.map((e) => Buffer.from(ethers.utils.arrayify(makeLeaf(e))));
-  const altTree = new MerkleTree(altLeaves, keccak256, { sortPairs: true });
+  const altLeaves = altSample.map((e) => Buffer.from(makeLeaf(e).slice(2), 'hex'));
+  const altTree = new MerkleTree(altLeaves, (buf) => crypto.createHash('sha256').update(buf).digest(), { sortPairs: true });
   const altRoot = altTree.getHexRoot();
   const mismatchedValid = tree.verify(proof, leafBuf, altRoot);
   console.log(JSON.stringify({ scenario: 'mismatched_root', result: formatResult({ success: mismatchedValid, code: mismatchedValid ? 'OK' : 'MISMATCHED_ROOT', message: mismatchedValid ? 'Unexpectedly valid' : 'Root mismatch' }), proof, leaf: leafHex, altRoot }));

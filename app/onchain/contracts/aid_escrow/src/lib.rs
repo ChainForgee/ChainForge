@@ -1624,6 +1624,7 @@ impl AidEscrow {
             .unwrap_or_else(|| String::from_str(env, "v1"))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn verify_merkle_proof_for_claimant(
         env: &Env,
         claimant: &Address,

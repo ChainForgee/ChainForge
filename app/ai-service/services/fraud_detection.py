@@ -66,10 +66,10 @@ def detect_fraud(claims: List[ClaimMetadata]) -> List[ClaimFraudResult]:
     X_noise = X + np.random.normal(0, 1e-5, X.shape)
 
     # n_neighbors must be strictly less than n_samples for LOF.
-    # For very small batches (2-3 claims) use n_neighbors = 1 so LOF
-    # still produces a meaningful local density estimate.
+    # Use the original heuristic but cap at n_samples - 1 so 2-claim
+    # batches (len//2 = 1) still get a valid neighbor count.
     n_samples = len(claims)
-    n_neighbors = min(20, max(1, n_samples - 1))
+    n_neighbors = min(20, max(2, n_samples // 2), n_samples - 1)
     lof = LocalOutlierFactor(n_neighbors=n_neighbors, contamination="auto")
     lof.fit_predict(X_noise)
     raw_scores: np.ndarray = lof.negative_outlier_factor_  # negative; more negative = more anomalous

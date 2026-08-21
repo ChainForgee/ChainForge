@@ -33,19 +33,22 @@ class TestSelfieOnlyRefusal:
 
     def test_selfie_only_returns_false(self):
         analyzer = _make_analyzer()
-        with patch.object(analyzer, "_decode_image", side_effect=_fake_decode):
+        with patch.object(analyzer, "_decode_image", side_effect=_fake_decode), \
+             patch.object(analyzer, "_detect_primary_face", return_value=(50, 50, 100, 100)):
             result = analyzer.analyze(selfie_image_base64="dGVzdA==")
         assert result["is_real_person"] is False
 
     def test_selfie_only_reason_mentions_liveness(self):
         analyzer = _make_analyzer()
-        with patch.object(analyzer, "_decode_image", side_effect=_fake_decode):
+        with patch.object(analyzer, "_decode_image", side_effect=_fake_decode), \
+             patch.object(analyzer, "_detect_primary_face", return_value=(50, 50, 100, 100)):
             result = analyzer.analyze(selfie_image_base64="dGVzdA==")
         assert "liveness" in result["reason"].lower()
 
     def test_empty_burst_list_treated_as_selfie_only(self):
         analyzer = _make_analyzer()
-        with patch.object(analyzer, "_decode_image", side_effect=_fake_decode):
+        with patch.object(analyzer, "_decode_image", side_effect=_fake_decode), \
+             patch.object(analyzer, "_detect_primary_face", return_value=(50, 50, 100, 100)):
             result = analyzer.analyze(
                 selfie_image_base64="dGVzdA==",
                 burst_images_base64=[],

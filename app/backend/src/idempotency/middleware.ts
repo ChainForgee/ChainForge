@@ -21,27 +21,60 @@ export function idempotencyMiddleware(store: IdempotencyStore) {
       const existingRecord = await store.tryAcquire(key, fingerprint);
 
       if (!existingRecord) {
-        // First time: Intercept the response to cache it
+        // First time (or an abandoned lease was re-acquired): intercept the
+        // response to cache it, and keep the processing lease alive while the
+        // handler runs so a slow request is never mistaken for an abandoned
+        // one.
         const originalSend = res.send.bind(res);
 
+        const heartbeatMs = Math.max(1, Math.floor(store.leaseDurationMs / 2));
+        const heartbeat = setInterval(() => {
+          store
+            .heartbeat(key)
+            .catch(err =>
+              console.error(
+                `Failed to refresh idempotency lease for key ${key.asString()}:`,
+                err,
+              ),
+            );
+        }, heartbeatMs);
+        heartbeat.unref?.();
+
+        const stopHeartbeat = () => clearInterval(heartbeat);
+        res.once('close', stopHeartbeat);
+
+        // Persist the result BEFORE the response is delivered, so a retry with
+        // the same key can never observe `processing` after the first request
+        // has responded. The write is deferred until the record is committed;
+        // failures are logged, never thrown at the client.
         res.send = (body: any) => {
+          stopHeartbeat();
           const status = res.statusCode;
           const recordStatus =
             status >= 200 && status < 300 ? 'succeeded' : 'failed';
           const bodyString =
             typeof body === 'string' ? body : JSON.stringify(body);
 
-          // Fire and forget cache save (log on failure)
-          store
+          void store
             .complete(key, recordStatus, status, bodyString)
             .catch(err =>
               console.error(
                 `Failed to save idempotency record for key ${key.asString()}:`,
                 err,
               ),
-            );
+            )
+            .finally(() => {
+              try {
+                originalSend(body);
+              } catch (err) {
+                console.error(
+                  `Failed to deliver response for key ${key.asString()}:`,
+                  err,
+                );
+              }
+            });
 
-          return originalSend(body);
+          return res;
         };
 
         return next();

@@ -10,11 +10,16 @@ class TestHumanitarianVerificationService:
     def setup_method(self):
         self.service = HumanitarianVerificationService()
 
-    @patch('metrics.PIPELINE_STEP_LATENCY.labels')
-    def test_verify_claim_uses_fallback_prompt_after_primary_failure(self, mock_labels, monkeypatch):
-        mock_observe = MagicMock()
-        mock_labels.return_value.observe = mock_observe
-       
+    def test_verify_claim_uses_fallback_prompt_after_primary_failure(self, monkeypatch):
+        observed_steps = []
+
+        def fake_labels(step_name):
+            mock = MagicMock()
+            mock.observe.side_effect = lambda value: observed_steps.append(step_name)
+            return mock
+
+        monkeypatch.setattr(metrics.PIPELINE_STEP_LATENCY, "labels", fake_labels)
+
         calls = []
 
         def fake_attempt_order(provider_preference):
@@ -44,9 +49,11 @@ class TestHumanitarianVerificationService:
         assert result["provider"] == "openai"
         assert result["verification"]["verdict"] == "inconclusive"
         assert len(calls) == 2
-       
-        mock_labels.assert_called_with(step_name='verify')
-        mock_observe.assert_called_once()
+
+        # The verify step is observed exactly once; the PII scrub
+        # preprocessing stage emits its own 'scrub' observation via the
+        # same PIPELINE_STEP_LATENCY metric (Issue #430).
+        assert observed_steps.count("verify") == 1
 
     def test_verify_claim_fails_when_no_provider_configured(self, monkeypatch):
         monkeypatch.setattr(self.service, "_provider_attempt_order", lambda provider_preference: [])

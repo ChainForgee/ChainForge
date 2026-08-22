@@ -21,4 +21,5 @@ class HumanitarianVerificationResponseV2(BaseModel):
     error: Optional[str] = None
     model_version: Optional[str] = None
     stamp: Optional[Dict[str, str]] = None
+    pii_scrubbing: Optional[Dict[str, Any]] = None
 

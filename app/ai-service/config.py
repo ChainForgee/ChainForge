@@ -54,6 +54,11 @@ class Settings(BaseSettings):
             survives before the periodic sweeper removes it. Default: 30.
         PII_DECISIONS_SWEEP_INTERVAL_SECONDS: How often the in-process
             retention sweep runs. Default: 3600 (1 hour).
+        PII_SCRUBBING_ENABLED: Master switch for the mandatory PII
+            preprocessing stage on the humanitarian verification pipeline.
+            When disabled the service fails closed: verification requests
+            are rejected rather than sending unredacted evidence to an
+            external LLM provider. Default: true.
     """
 
     # API Keys
@@ -102,6 +107,11 @@ class Settings(BaseSettings):
     # the store is opt-in for tests; the runtime behaviour of
     # /v1/ai/anonymize is unchanged when disabled.
     pii_decisions_enabled: bool = False
+
+    # PII scrubbing (Issue #430): mandatory preprocessing stage for the
+    # humanitarian verification pipeline. Fails closed when disabled so raw
+    # recipient text is never sent to an external LLM provider.
+    pii_scrubbing_enabled: bool = True
     pii_decisions_db_path: str = "./data/pii_decisions.db"
     pii_decisions_retention_days: int = 30
     pii_decisions_sweep_interval_seconds: int = 3600

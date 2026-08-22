@@ -32,6 +32,8 @@ The service starts at `http://localhost:8000`. Interactive API documentation is 
 | `BACKEND_WEBHOOK_URL` | `http://localhost:3001/ai/webhook` | Backend notification endpoint |
 | `MAX_REQUEST_BODY_BYTES` | `10485760` (10 MiB) | Maximum HTTP request body size; oversized requests are rejected with HTTP 413 to prevent memory-exhaustion DoS. Set to `0` to disable (not recommended in production). |
 | `REQUEST_BODY_BYPASS_PATHS` | _(empty)_ | Comma-separated path entries that bypass body-size limiting. Entries without a trailing `'/'` must match the path exactly; entries with a trailing `'/'` (e.g. `/hooks/`) match any path with that prefix. The default bypass list (`/health`, `/`, `/ai/metrics`, `/docs`, `/redoc`, `/openapi.json`) is always merged in. |
+| `PII_SCRUBBING_ENABLED` | `true` | Master switch for the mandatory PII preprocessing stage on `/v1/ai/humanitarian/verify`. When disabled the service **fails closed**: verification requests are rejected rather than sending unredacted evidence to an external LLM provider. |
+| `PII_DECISIONS_ENABLED` | `false` | When truthy, every successful scrubbing event (the `/v1/ai/anonymize` endpoint and the humanitarian verification pipeline) writes aggregate audit metadata (counts + fingerprint only, never text) to the PII decisions store. |
 
 ## Core services
 
@@ -113,6 +115,38 @@ POST /v1/ai/fraud/detect
 ```
 
 Analyzes claim metadata batches using Local Outlier Factor and flags anomalous patterns for manual review.
+
+---
+
+## PII scrubbing posture
+
+PII anonymization is enforced as a **mandatory preprocessing stage**, not an
+opt-in helper. Before any prompt is built for an external LLM provider, the
+pipeline scrubs `aid_claim`, every `supporting_evidence` entry, and
+string-valued `context_factors` using the same detector that backs
+`/v1/ai/anonymize`.
+
+| Endpoint | Scrubs PII before external processing | Notes |
+|---|---|---|
+| `POST /v1/ai/humanitarian/verify` | ✅ Yes | Fail-closed: if scrubbing is disabled (`PII_SCRUBBING_ENABLED=false`) or fails, the request is rejected with `success=false` and no provider call is made. The response includes a `pii_scrubbing` block (`applied`, `anonymized`, `pii_summary`); the raw text is never returned and remains only on the backend (human-review) side. |
+| `POST /v1/ai/anonymize` | ✅ Yes | Explicit scrubbing endpoint; the caller receives the anonymized text and aggregate summary. |
+| `POST /ai/ocr` | ❌ No | Local document extraction (Tesseract); no external LLM call is made from this path. |
+| `POST /v1/ai/fraud/detect` | ❌ No | Local statistical anomaly detection (LOF); no external LLM call is made from this path. |
+| `POST /ai/proof-of-life` | ❌ No | Local face/liveness analysis; no external LLM call is made from this path. |
+
+**Residual risk.** Detection relies on a regex set plus a spaCy `blank`
+entity ruler, so precision is imperfect: generic capitalized phrases can be
+over-redacted, and unusual identifier formats (e.g. non-Nigerian ID numbers,
+foreign phone formats) can pass through undetected. Treat scrubbing as a
+privacy-control layer, not a guarantee; recipients should be advised that
+names and locations embedded in evidence are material to verification and
+may affect the verdict. Do not rely on scrubbed output to fully de-identify
+free text.
+
+**Audit.** When `PII_DECISIONS_ENABLED=true`, each scrubbing event writes an
+aggregate record (entity counts, token counts, a non-reversible SHA-256
+fingerprint, model version) to the SQLite `pii_decisions` store. Raw or
+anonymized text is never persisted.
 
 ---
 

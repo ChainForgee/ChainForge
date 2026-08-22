@@ -78,10 +78,25 @@ class PIIScrubberService:
         metrics.PII_MODEL_VERSION.labels(version=PII_MODEL_VERSION).set(1)
 
     def anonymize(self, text: str) -> Dict[str, object]:
-        """Return privacy-preserving anonymized text and summary metadata."""
+        """Return privacy-preserving anonymized text and summary metadata.
+
+        When ``test_provider_mode`` is enabled the result is served from
+        fixture files so staging/testnet deployments can exercise the
+        contract without running the detector; otherwise the local detector
+        runs via :meth:`scrub_text`.
+        """
         if settings.test_provider_mode:
             return self.test_provider.get_response("anonymize", {"text": text})
+        return self.scrub_text(text)
 
+    def scrub_text(self, text: str) -> Dict[str, object]:
+        """Run the local PII detector and return masked text + summary metadata.
+
+        Unlike :meth:`anonymize`, this always executes the local regex and
+        spaCy detector and never routes through the test provider, so
+        hot-path consumers (e.g. the humanitarian verification pipeline)
+        get deterministic masking even when ``test_provider_mode`` is set.
+        """
         start_time = time.time()
         try:
             if not text:

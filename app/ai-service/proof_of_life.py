@@ -120,13 +120,16 @@ class ProofOfLifeAnalyzer:
 
         burst_required = bool(burst_images_base64)
         has_liveness_evidence = (
-            checks["blink_detected"] or checks["head_movement_detected"] or not burst_required
+            checks["blink_detected"] or checks["head_movement_detected"]
         )
         is_real_person = confidence >= threshold and has_liveness_evidence
 
         reason = "Face detected and confidence threshold met"
         if burst_required and not has_liveness_evidence:
             reason = "No liveness signal detected from burst frames"
+        elif not burst_required:
+            is_real_person = False
+            reason = "Liveness verification requires burst frames"
         elif confidence < threshold:
             reason = "Confidence score is below threshold"
 

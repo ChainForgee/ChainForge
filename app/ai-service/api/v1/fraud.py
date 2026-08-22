@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from schemas.fraud import FraudDetectionRequest, FraudDetectionResponse
-from services.fraud_detection import detect_fraud
+from services.fraud_detection import detect_fraud, MODEL_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ async def detect_fraud_endpoint(request: FraudDetectionRequest) -> FraudDetectio
         return FraudDetectionResponse(
             results=results,
             flagged_count=sum(r.is_flagged for r in results),
+            model_version=MODEL_VERSION,
         )
     except Exception as exc:
         logger.error("Fraud detection failed: %s", exc)

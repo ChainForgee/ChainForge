@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 # Claims with LOF score above this threshold are flagged
 _OUTLIER_THRESHOLD = -1.5
 
+# Version of the scoring pipeline — surfaced in the response so downstream
+# consumers can detect silent model drift.  Bump when the feature
+# representation or decision rule changes.
+MODEL_VERSION = "fraud-v1.1"
+
 
 def _vectorize(claims: List[ClaimMetadata]) -> np.ndarray:
     """Convert claim metadata into a numeric feature matrix."""
@@ -36,11 +41,11 @@ def _vectorize(claims: List[ClaimMetadata]) -> np.ndarray:
     loc_enc.fit(locs)
 
     return np.column_stack([
-        ip_enc.transform(ips),
-        hash_enc.transform(hashes),
-        loc_enc.transform(locs),
-        amounts,
-    ]).astype(float)
+        ip_enc.transform(ips).astype(float),
+        hash_enc.transform(hashes).astype(float),
+        loc_enc.transform(locs).astype(float),
+        np.array(amounts, dtype=float),
+    ])
 
 
 def detect_fraud(claims: List[ClaimMetadata]) -> List[ClaimFraudResult]:
@@ -55,17 +60,21 @@ def detect_fraud(claims: List[ClaimMetadata]) -> List[ClaimFraudResult]:
         return [ClaimFraudResult(claim_id=claims[0].claim_id, fraud_risk_score=0.0, is_flagged=False)]
 
     X = _vectorize(claims)
-   
+
     # Add tiny random noise to prevent identical point degeneracy and zero-distance division issues
     np.random.seed(42)
     X_noise = X + np.random.normal(0, 1e-5, X.shape)
 
-    n_neighbors = min(20, max(2, len(claims) // 2))
+    # n_neighbors must be strictly less than n_samples for LOF.
+    # Use the original heuristic but cap at n_samples - 1 so 2-claim
+    # batches (len//2 = 1) still get a valid neighbor count.
+    n_samples = len(claims)
+    n_neighbors = min(20, max(2, n_samples // 2), n_samples - 1)
     lof = LocalOutlierFactor(n_neighbors=n_neighbors, contamination="auto")
     lof.fit_predict(X_noise)
     raw_scores: np.ndarray = lof.negative_outlier_factor_  # negative; more negative = more anomalous
 
-    # Normalise to [0, 1]: most anomalous → 1, most normal → 0
+    # Normalise to [0, 1]: most anomalous -> 1, most normal -> 0
     min_s, max_s = raw_scores.min(), raw_scores.max()
     if max_s == min_s:
         normalised = np.zeros(len(raw_scores))

@@ -38,19 +38,19 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Validate package.json files
         run: |
           node -e "const fs=require('fs'); require('child_process').execSync('git ls-files \"*package.json\"',{encoding:'utf8'}).trim().split('\\n').filter(Boolean).forEach(p=>{JSON.parse(fs.readFileSync(p,'utf8')); console.log('OK',p)})"
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
       - name: Use Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'pnpm'
